@@ -62,7 +62,7 @@ def main(args):
     os.makedirs(workdir, exist_ok=True)
     toml.dump({**config, **argsdict}, open(os.path.join(workdir, 'config.toml'), 'w'))
 
-    optimizer = AdamW(model.parameters(), amsgrad=True, lr=args.learning_rate)
+    optimizer = AdamW(model.parameters(), amsgrad=True, lr=args.lr)
 
 
 
