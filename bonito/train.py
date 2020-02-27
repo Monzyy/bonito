@@ -51,7 +51,10 @@ def main(args):
 
     print("[loading model]")
     model = Model(config)
+    if gpu_mode:
+        model = model.cuda()
 
+    model.train()
     #weights = os.path.join(workdir, 'weights.tar')
     #if os.path.exists(weights): model.load_state_dict(torch.load(weights))
 #
