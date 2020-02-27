@@ -33,8 +33,9 @@ def main(args):
         print("[error] %s exists." % workdir)
         exit(1)
 
-    init(args.seed, args.device)
-    device = torch.device(args.device)
+    gpu_mode = args.gpu_mode
+    init(args.seed, gpu_mode)
+
 
     print("[loading data]")
     chunks, chunk_lengths, targets, target_lengths = load_data(limit=args.chunks, shuffle=True, directory=args.directory)
@@ -51,16 +52,19 @@ def main(args):
     print("[loading model]")
     model = Model(config)
 
-    weights = os.path.join(workdir, 'weights.tar')
-    if os.path.exists(weights): model.load_state_dict(torch.load(weights))
+    #weights = os.path.join(workdir, 'weights.tar')
+    #if os.path.exists(weights): model.load_state_dict(torch.load(weights))
+#
+#    model.to(device)
+#    model.train()
 
-    model.to(device)
-    model.train()
 
     os.makedirs(workdir, exist_ok=True)
     toml.dump({**config, **argsdict}, open(os.path.join(workdir, 'config.toml'), 'w'))
 
-    optimizer = AdamW(model.parameters(), amsgrad=True, lr=args.lr)
+    optimizer = AdamW(model.parameters(), amsgrad=True, lr=args.learning_rate)
+
+
 
     if args.amp:
         try:
@@ -69,15 +73,19 @@ def main(args):
             print("[error]: Cannot use AMP: Apex package needs to be installed manually, See https://github.com/NVIDIA/apex")
             exit(1)
 
+    stride = config['block'][0]['stride'][0]
+    alphabet = config['labels']['labels']
+    if gpu_mode:
+        model = torch.nn.DataParallel(model).cuda()
     schedular = CosineAnnealingLR(optimizer, args.epochs * len(train_loader))
 
     for epoch in range(1, args.epochs + 1):
 
         try:
             train_loss, duration = train(
-                model, device, train_loader, optimizer, use_amp=args.amp
+                model, gpu_mode, train_loader, optimizer, stride, alphabet, use_amp=args.amp
             )
-            val_loss, val_mean, val_median = test(model, device, test_loader)
+            val_loss, val_mean, val_median = test(model, gpu_mode, test_loader, stride, alphabet)
         except KeyboardInterrupt:
             break
 
@@ -117,5 +125,12 @@ def argparser():
     parser.add_argument("--chunks", default=1000000, type=int)
     parser.add_argument("--validation_split", default=0.99, type=float)
     parser.add_argument("--amp", action="store_true", default=False)
+    parser.add_argument(
+        "-g",
+        "--gpu_mode",
+        default=True,
+        action='store_true',
+        help="If set then PyTorch will use GPUs for inference. CUDA required."
+    )
     parser.add_argument("-f", "--force", action="store_true", default=False)
     return parser

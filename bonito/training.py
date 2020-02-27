@@ -39,7 +39,7 @@ class ChunkDataSet:
         return len(self.chunks)
 
 
-def train(model, device, train_loader, optimizer, use_amp=False):
+def train(model, device, train_loader, optimizer, stride, alphabet, use_amp=False):
 
     chunks = 0
     model.train()
@@ -62,7 +62,7 @@ def train(model, device, train_loader, optimizer, use_amp=False):
             target = target.to(device)
             log_probs = model(data)
 
-            loss = criterion(log_probs.transpose(0, 1), target, out_lengths / model.stride, lengths)
+            loss = criterion(log_probs.transpose(0, 1), target, out_lengths / stride, lengths)
 
             if use_amp:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -79,7 +79,7 @@ def train(model, device, train_loader, optimizer, use_amp=False):
     return loss.item(), time.perf_counter() - t0
 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, stride, alphabet):
 
     model.eval()
     test_loss = 0
@@ -90,15 +90,15 @@ def test(model, device, test_loader):
         for batch_idx, (data, out_lengths, target, lengths) in enumerate(test_loader, start=1):
             data, target = data.to(device), target.to(device)
             log_probs = model(data)
-            test_loss += criterion(log_probs.transpose(1, 0), target, out_lengths / model.stride, lengths)
+            test_loss += criterion(log_probs.transpose(1, 0), target, out_lengths / stride, lengths)
             predictions.append(torch.exp(log_probs).cpu())
-            prediction_lengths.append(out_lengths / model.stride)
+            prediction_lengths.append(out_lengths / stride)
 
     predictions = np.concatenate(predictions)
     lengths = np.concatenate(prediction_lengths)
 
-    references = [decode_ref(target, model.alphabet) for target in test_loader.dataset.targets]
-    sequences = [decode(post[:n], model.alphabet) for post, n in zip(predictions, lengths)]
+    references = [decode_ref(target, alphabet) for target in test_loader.dataset.targets]
+    sequences = [decode(post[:n], alphabet) for post, n in zip(predictions, lengths)]
 
     if all(map(len, sequences)):
         accuracies = list(starmap(accuracy, zip(references, sequences)))
