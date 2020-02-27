@@ -1,3 +1,5 @@
+import os, sys
+
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
 from bonito import basecaller, evaluate, train, view, tune
@@ -32,4 +34,6 @@ def main():
 
 
 if __name__ == '__main__':
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.extend([this_dir, os.path.dirname(this_dir)])
     main()
