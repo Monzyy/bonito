@@ -39,7 +39,7 @@ class ChunkDataSet:
         return len(self.chunks)
 
 
-def train(model, device, gpu_mode, train_loader, optimizer, stride, alphabet, use_amp=False):
+def train(model, gpu_mode, train_loader, optimizer, stride, alphabet, use_amp=False):
 
     chunks = 0
     model.train()
