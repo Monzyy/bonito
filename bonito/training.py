@@ -57,9 +57,10 @@ def train(model, device, gpu_mode, train_loader, optimizer, stride, alphabet, us
             optimizer.zero_grad()
 
             chunks += data.shape[0]
+            if gpu_mode:
+                data = data.cuda()
+                target = target.cuda()
 
-            data = data.to(device)
-            target = target.to(device)
             log_probs = model(data)
 
             loss = criterion(log_probs.transpose(0, 1), target, out_lengths / stride, lengths)
@@ -88,7 +89,9 @@ def test(model, gpu_mode, device, test_loader, stride, alphabet):
 
     with torch.no_grad():
         for batch_idx, (data, out_lengths, target, lengths) in enumerate(test_loader, start=1):
-            data, target = data.to(device), target.to(device)
+            if gpu_mode:
+                data, target = data.cuda(), target.cuda()
+            # data, target = data.to(device), target.to(device)
             log_probs = model(data)
             test_loss += criterion(log_probs.transpose(1, 0), target, out_lengths / stride, lengths)
             predictions.append(torch.exp(log_probs).cpu())
