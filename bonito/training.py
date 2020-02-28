@@ -39,7 +39,7 @@ class ChunkDataSet:
         return len(self.chunks)
 
 
-def train(model, device, train_loader, optimizer, stride, alphabet, use_amp=False):
+def train(model, device, gpu_mode, train_loader, optimizer, stride, alphabet, use_amp=False):
 
     chunks = 0
     model.train()
@@ -79,7 +79,7 @@ def train(model, device, train_loader, optimizer, stride, alphabet, use_amp=Fals
     return loss.item(), time.perf_counter() - t0
 
 
-def test(model, device, test_loader, stride, alphabet):
+def test(model, gpu_mode, device, test_loader, stride, alphabet):
 
     model.eval()
     test_loss = 0
