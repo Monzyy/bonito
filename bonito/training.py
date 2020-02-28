@@ -80,7 +80,7 @@ def train(model, gpu_mode, train_loader, optimizer, stride, alphabet, use_amp=Fa
     return loss.item(), time.perf_counter() - t0
 
 
-def test(model, gpu_mode, device, test_loader, stride, alphabet):
+def test(model, gpu_mode, test_loader, stride, alphabet):
 
     model.eval()
     test_loss = 0
