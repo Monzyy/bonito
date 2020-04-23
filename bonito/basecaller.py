@@ -23,7 +23,7 @@ def main(args):
     max_read_size = 1e9
     dtype = np.float16 if args.half else np.float32
     reader = PreprocessReader(args.reads_directory)
-    writer = DecoderWriter(model.alphabet, args.beamsize)
+    writer = DecoderWriter(model.alphabet, args.beamsize, decoder=args.decoder, lm=args.lm)
 
     t0 = time.perf_counter()
     sys.stderr.write("> calling\n")
@@ -54,7 +54,8 @@ def main(args):
     duration = time.perf_counter() - t0
 
     sys.stderr.write("> completed reads: %s\n" % num_reads)
-    sys.stderr.write("> samples per second %.1E\n" % (samples  / duration))
+    sys.stderr.write("> samples per second %.1E\n" % (samples / duration))
+    sys.stderr.write(f"> time elapsed: {duration} seconds\n")
     sys.stderr.write("> done\n")
 
 
@@ -69,4 +70,6 @@ def argparser():
     parser.add_argument("--weights", default="0", type=str)
     parser.add_argument("--beamsize", default=5, type=int)
     parser.add_argument("--half", action="store_true", default=False)
+    parser.add_argument("--decoder", type=str)
+    parser.add_argument("--lm", type=str)
     return parser

@@ -10,7 +10,7 @@ from multiprocessing import Process, Queue
 
 from tqdm import tqdm
 
-from bonito.decode import decode
+from bonito.decode import decode, prefix_beam_search
 from bonito.util import get_raw_data
 
 
@@ -44,12 +44,17 @@ class DecoderWriter(Process):
     """
     Decoder Process that writes fasta records to stdout
     """
-    def __init__(self, alphabet, beamsize=5, wrap=100):
+    def __init__(self, alphabet, beamsize=5, wrap=100, decoder=None, lm=None, alpha=None, beta=None):
         super().__init__()
         self.queue = Queue()
         self.wrap = wrap
         self.beamsize = beamsize
         self.alphabet = ''.join(alphabet)
+        self.decode = prefix_beam_search if decoder == 'pbs' else decode
+        self.kwargs = {}
+        for k, v in (('lm', lm), ('alpha', alpha), ('beta', beta)):
+            if v is not None:
+                self.kwargs[k] = v
 
     def __enter__(self):
         self.start()
@@ -63,7 +68,7 @@ class DecoderWriter(Process):
             job = self.queue.get()
             if job is None: return
             read_id, predictions = job
-            sequence = decode(predictions, self.alphabet, self.beamsize)
+            sequence = self.decode(predictions, self.alphabet, self.beamsize, **self.kwargs)
             sys.stdout.write(">%s\n" % read_id)
             sys.stdout.write("%s\n" % os.linesep.join(wrap(sequence, self.wrap)))
             sys.stdout.flush()
