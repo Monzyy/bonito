@@ -12,7 +12,7 @@ from string import ascii_lowercase
 import csv
 import sys
 
-OOV_SCORE = -10.0
+OOV_SCORE = -0.6  # ~ log(0.25)
 
 
 class LanguageModel:
@@ -21,6 +21,8 @@ class LanguageModel:
         self.setup(lm_path)
         self._is_character_based = is_character_based
         self.n_gram_length = len(list(self.log_cond_probs.keys())[0])  # Unsafe
+        self.vocab_miss = 0
+        self.vocab_hit = 0
 
     def setup(self, lm_path):
         word_idx = 0
@@ -36,7 +38,12 @@ class LanguageModel:
             n_gram = word[-self.n_gram_length:]
         else:
             n_gram = word
-        return self.log_cond_probs.get(n_gram, OOV_SCORE)
+        if self.log_cond_probs.get(n_gram) is not None:
+            self.vocab_hit += 1
+            return self.log_cond_probs[n_gram]
+        else:
+            self.vocab_miss += 1
+            return OOV_SCORE
 
     def is_character_based(self):
         return self._is_character_based
@@ -67,7 +74,7 @@ def decode(predictions, alphabet, beam_size=5, threshold=0.1):
     return beam_search(predictions.astype(np.float32), alphabet, beam_size, threshold)
 
 
-def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, alpha=2.0, beta=5):
+def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alpha=2.0, beta=1.5):
     """
     Performs prefix beam search on the output of a CTC network.
     Args:
@@ -82,7 +89,7 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, al
         string: The decoded CTC output.
     """
 
-    lm = LanguageModel(lm)
+    lm = LanguageModel(lm) if lm else None
     W = lambda l: re.findall(r'\w+[\s|>]', l)
     blank_idx = 0  # The blank character is the first character
     F = ctc.shape[1]
@@ -93,7 +100,7 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, al
     # STEP 1: Initiliazation
     O = ''
     Pb, Pnb = defaultdict(Counter), defaultdict(Counter)
-    Pb[0][O] = 1
+    Pb[0][O] = np.log(1)
     Pnb[0][O] = 0
     A_prev = [O]
     # END: STEP 1
@@ -136,9 +143,8 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, al
                         #Pnb[t][l] += ctc[t][c_ix] * Pnb[t - 1][l]
 
                     # Extend with any other non-blank character and LM constraints
-                    elif len(l.replace(' ', '')) > 0 and (c in (' ', '>') or lm.is_character_based()):
+                    elif len(l.replace(' ', '')) > 0 and (c in (' ', '>') or (lm and lm.is_character_based())):
                         lm_log_prob = lm.get_log_cond_prob(l_plus.strip(' >')) * alpha
-
                         Pnb[t][l_plus] = log_sum_exp(
                             Pnb[t][l_plus],
                             lm_log_prob + ctc[t][c_ix] + log_sum_exp(
@@ -146,9 +152,11 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, al
                                 Pnb[t - 1][l]
                             )
                         )
-                        #Pnb[t][l_plus] += lm_log_prob * ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
+                        #Pnb[t][l_plus] += lm_prob * ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
                     else:
                         # Will be called in a word based language model for normal characters
+                        #if t == 190:
+                        #    print()
                         Pnb[t][l_plus] = log_sum_exp(
                             Pnb[t][l_plus],
                             ctc[t][c_ix] + log_sum_exp(
@@ -178,7 +186,7 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, al
         # Select most probable prefixes
         A_next = Pb[t] + Pnb[t]
 
-        sorter = lambda l: A_next[l] #+ (len(W(l)) + 1) * beta
+        sorter = lambda l: A_next[l] + (len(l) + 1) * beta
         #sorter = lambda l: A_next[l] * (len(W(l)) + 1) ** beta
         A_prev = sorted(A_next, key=sorter, reverse=True)[:beam_size]
         if t >= 2:
@@ -189,6 +197,8 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.001, lm=None, al
         t_time = time.time()
         sys.stderr.flush()
 
+    sys.stderr.write(f'Vocabulary hits: {lm.vocab_hit}  Vocabulary misses: {lm.vocab_miss} '
+                     f'Hit percentage: {(100 * (lm.vocab_hit/(lm.vocab_hit + lm.vocab_miss)))}\%')
     return A_prev[0].strip('>')
 
 

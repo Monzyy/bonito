@@ -7,7 +7,7 @@ import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
-from bonito.io import DecoderWriter, PreprocessReader
+from bonito.bonito_io import DecoderWriter, PreprocessReader
 
 import torch
 import numpy as np
