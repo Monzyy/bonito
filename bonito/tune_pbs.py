@@ -7,7 +7,7 @@ import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
-from bonito.bonito_io import DecoderWriter, HDF5Reader
+from bonito.bonito_io import HDF5Reader, TunerProcess
 
 import torch
 import numpy as np
@@ -23,13 +23,13 @@ def main(args):
     max_read_size = 1e9
     dtype = np.float16 if args.half else np.float32
     reader = HDF5Reader(args.hdf5)
-    writer = DecoderWriter(model.alphabet, args.beamsize, decoder='pbs',
+    tuner = TunerProcess(model.alphabet, args.beamsize, decoder='pbs',
                            lm=args.lm)
 
     t0 = time.perf_counter()
     sys.stderr.write("> calling\n")
 
-    with writer, reader, torch.no_grad():
+    with tuner, reader, torch.no_grad():
 
         while True:
 
@@ -50,7 +50,7 @@ def main(args):
             gpu_data = torch.tensor(raw_data).to(args.device)
             posteriors = model(gpu_data).exp().cpu().numpy().squeeze()
 
-            writer.queue.put((read_id, posteriors, reference))
+            tuner.queue.put((read_id, posteriors, reference))
 
     duration = time.perf_counter() - t0
 
