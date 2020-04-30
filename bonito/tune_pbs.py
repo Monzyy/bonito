@@ -8,6 +8,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
 from bonito.bonito_io import HDF5Reader, TunerProcess
+from sklearn.model_selection import GridSearchCV
 
 import torch
 import numpy as np
@@ -51,6 +52,7 @@ def main(args):
             posteriors = model(gpu_data).exp().cpu().numpy().squeeze()
 
             tuner.queue.put((read_id, posteriors, reference))
+    avg_acc = sum(tuner.accuracies) / len(tuner.accuracies)
 
     duration = time.perf_counter() - t0
 

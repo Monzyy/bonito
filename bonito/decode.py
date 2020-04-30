@@ -194,13 +194,13 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alph
             Pb.pop(t-2)
             Pnb.pop(t-2)
 
-        sys.stderr.write(f'\r{1/(time.time()-t_time)}tps')
+        #sys.stderr.write(f'\r{1/(time.time()-t_time)}tps')
         t_time = time.time()
         sys.stderr.flush()
 
-    if lm:
-        sys.stderr.write(f'Vocabulary hits: {lm.vocab_hit}  Vocabulary misses: {lm.vocab_miss} '
-                         f'Hit percentage: {(100 * (lm.vocab_hit/(lm.vocab_hit + lm.vocab_miss)))}\%')
+    #if lm:
+    #    sys.stderr.write(f'Vocabulary hits: {lm.vocab_hit}  Vocabulary misses: {lm.vocab_miss} '
+    #                     f'Hit percentage: {(100 * (lm.vocab_hit/(lm.vocab_hit + lm.vocab_miss)))}\%')
     return A_prev[0].strip('>')
 
 

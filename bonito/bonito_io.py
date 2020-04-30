@@ -9,10 +9,10 @@ from textwrap import wrap
 from multiprocessing import Process, Queue
 
 from tqdm import tqdm
-import h5py
+import mappy
 
-from bonito.decode import decode, prefix_beam_search, prefix_beam_search_parallel
-from bonito.util import get_raw_data, get_raw_hdf5_data
+from bonito.decode import decode, prefix_beam_search, prefix_beam_search_parallel, decode_ref
+from bonito.util import get_raw_data, get_raw_hdf5_data, accuracy
 
 
 class PreprocessReader(Process):
@@ -131,6 +131,7 @@ class TunerProcess(Process):
         for k, v in (('lm', lm), ('alpha', alpha), ('beta', beta)):
             if v is not None:
                 self.kwargs[k] = v
+        self.accuracies = []
 
     def __enter__(self):
         self.start()
@@ -146,6 +147,8 @@ class TunerProcess(Process):
             read_id, predictions, reference = job
             sequence = self.decode(predictions, self.alphabet, self.beamsize, **self.kwargs)
             # measure basecalling accuracy here
+            acc = accuracy(decode_ref(reference, self.alphabet), sequence)
+            self.accuracies.append(acc)
             sys.stdout.write(">%s\n" % read_id)
             sys.stdout.write("%s\n" % os.linesep.join(wrap(sequence, self.wrap)))
             sys.stdout.flush()
