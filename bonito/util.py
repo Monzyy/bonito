@@ -7,6 +7,8 @@ import re
 import random
 from glob import glob
 from collections import defaultdict, OrderedDict
+import mappy as mp
+import statistics
 
 from bonito.model import Model
 
@@ -262,6 +264,48 @@ def accuracy(ref, seq, balanced=False):
     else:
         accuracy = counts['='] / (counts['='] + counts['I'] + counts['X'] + counts['D'])
     return accuracy * 100
+
+
+# Read length accuracy using minimap2 and ryan wicks read_length_accuracy calculations
+def alt_calc_read_length_accuracy(read_id, prediction, ref):
+    read_alignments = collections.defaultdict(list)
+    aligner = mp.Aligner(ref, preset="map-ont")
+    if not aligner:
+        print("Failed to load/build index")
+        raise Exception("ERROR: failed to load/build index")
+    # Calculate an error rate per aligned read
+    for hit in aligner.map(prediction, cs=True): # traverse alignments
+        read_name = read_id
+        read_start = hit.q_st
+        read_end = hit.q_en
+        ref_start = hit.r_st
+        ref_end = hit.r_en
+        mlen = hit.mlen
+        blen = hit.blen
+        identity = 100.0 * mlen/blen
+        read_alignments[read_name].append((read_start, read_end, ref_start, ref_end, identity))
+
+    read_length = len(prediction)
+    alignments = read_alignments[id]
+    identity_by_base = [0.0] * read_length
+    total_read_length, total_ref_length = 0, 0
+
+    for read_start, read_end, ref_start, ref_end, identity in alignments:
+        for i in range(read_start, read_end):
+            if identity > identity_by_base[i]:
+                identity_by_base[i] = identity
+        total_read_length += read_end - read_start
+        total_ref_length += ref_end - ref_start
+
+    # If less than half the read aligned, then we call it an unaligned read.
+    if identity_by_base.count(0.0) > read_length / 2.0:
+        whole_read_identity = 0.0
+
+    # Otherwise, the read's identity is the average of the aligned parts.
+    else:
+        whole_read_identity = statistics.mean([x for x in identity_by_base if x > 0.0])
+
+    return whole_read_identity
 
 
 def print_alignment(ref, seq):
