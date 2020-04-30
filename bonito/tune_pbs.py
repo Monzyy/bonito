@@ -53,6 +53,7 @@ def main(args):
 
             tuner.queue.put((read_id, posteriors, reference))
     avg_acc = sum(tuner.accuracies) / len(tuner.accuracies)
+    sys.stderr.write("average accuracy: ", avg_acc)
 
     duration = time.perf_counter() - t0
 
