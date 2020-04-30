@@ -19,3 +19,5 @@ Untitled*.ipynb
 *.log
 *.db
 *.sqlite3
+
+\.idea/
