@@ -1,5 +1,5 @@
 """
-Bonito Basecaller
+Tune Prefix beam-search parameters
 """
 
 import sys
@@ -7,7 +7,7 @@ import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
-from bonito.bonito_io import DecoderWriter, PreprocessReader
+from bonito.bonito_io import DecoderWriter, HDF5Reader
 
 import torch
 import numpy as np
@@ -22,9 +22,9 @@ def main(args):
     num_reads = 0
     max_read_size = 1e9
     dtype = np.float16 if args.half else np.float32
-    reader = PreprocessReader(args.reads_directory)
-    writer = DecoderWriter(model.alphabet, args.beamsize, decoder=args.decoder,
-                           lm=args.lm, alpha=args.alpha, beta=args.beta)
+    reader = HDF5Reader(args.hdf5)
+    writer = DecoderWriter(model.alphabet, args.beamsize, decoder='pbs',
+                           lm=args.lm)
 
     t0 = time.perf_counter()
     sys.stderr.write("> calling\n")
@@ -37,7 +37,7 @@ def main(args):
             if read is None:
                 break
 
-            read_id, raw_data = read
+            read_id, raw_data, reference = read
 
             if len(raw_data) > max_read_size:
                 sys.stderr.write("> skipping %s: %s too long\n" % (len(raw_data), read_id))
@@ -50,7 +50,7 @@ def main(args):
             gpu_data = torch.tensor(raw_data).to(args.device)
             posteriors = model(gpu_data).exp().cpu().numpy().squeeze()
 
-            writer.queue.put((read_id, posteriors))
+            writer.queue.put((read_id, posteriors, reference))
 
     duration = time.perf_counter() - t0
 
@@ -66,13 +66,10 @@ def argparser():
         add_help=False
     )
     parser.add_argument("model_directory")
-    parser.add_argument("reads_directory")
+    parser.add_argument("hdf5")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--weights", default="0", type=str)
     parser.add_argument("--beamsize", default=5, type=int)
     parser.add_argument("--half", action="store_true", default=False)
-    parser.add_argument("--decoder", type=str)
     parser.add_argument("--lm", type=str)
-    parser.add_argument("--alpha", type=float)
-    parser.add_argument("--beta", type=float)
     return parser

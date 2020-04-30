@@ -20,7 +20,7 @@ def main():
     )
     subparsers.required = True
 
-    for module in ('basecaller', 'evaluate', 'train', 'view', 'tune'):
+    for module in ('basecaller', 'evaluate', 'train', 'view', 'tune', 'tune_pbs'):
         mod = globals()[module]
         p = subparsers.add_parser(module, parents=[mod.argparser()])
         p.set_defaults(func=mod.main)
@@ -33,5 +33,5 @@ if __name__ == '__main__':
     this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.append(this_dir)
     from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-    from bonito import basecaller, evaluate, train, view, tune
+    from bonito import basecaller, evaluate, train, view, tune, tune_pbs
     main()

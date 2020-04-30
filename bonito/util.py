@@ -10,6 +10,7 @@ from collections import defaultdict, OrderedDict
 
 from bonito.model import Model
 
+import h5py
 import toml
 import torch
 import parasail
@@ -98,6 +99,20 @@ def get_raw_data(filename):
             offset = int(channel_info['offset'])
             scaled = np.array(scaling * (raw + offset), dtype=np.float32)
             yield read.read_id, preprocess(scaled)
+
+
+def get_raw_hdf5_data(file_name):
+    with h5py.File(file_name, 'r') as h5:
+        reads = h5['Reads']
+        for read_id in reads:
+            read = reads[read_id]
+            raw = read['Dacs'][:]
+            channel_info = read.attrs
+            scaling = channel_info['range'] / channel_info['digitisation']
+            offset = int(channel_info['offset'])
+            scaled = np.array(scaling * (raw + offset), dtype=np.float32)
+            reference = read['Reference'][:]
+            yield read_id, preprocess(scaled), reference
 
 
 def window(data, size, stepsize=1, padded=False, axis=-1):

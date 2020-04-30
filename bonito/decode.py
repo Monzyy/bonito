@@ -11,8 +11,9 @@ import time
 from string import ascii_lowercase
 import csv
 import sys
+from joblib import Parallel, delayed
 
-OOV_SCORE = -0.6  # ~ log(0.25)
+OOV_SCORE = 0 # ~ log(1)
 
 
 class LanguageModel:
@@ -74,7 +75,7 @@ def decode(predictions, alphabet, beam_size=5, threshold=0.1):
     return beam_search(predictions.astype(np.float32), alphabet, beam_size, threshold)
 
 
-def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alpha=2.0, beta=1.5):
+def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alpha=1, beta=1):
     """
     Performs prefix beam search on the output of a CTC network.
     Args:
@@ -100,8 +101,8 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alph
     # STEP 1: Initiliazation
     O = ''
     Pb, Pnb = defaultdict(Counter), defaultdict(Counter)
-    Pb[0][O] = np.log(1)
-    Pnb[0][O] = 0
+    Pb[0][O] = 0.0  # log(1)
+    Pnb[0][O] = float('-inf')  # log(0)
     A_prev = [O]
     # END: STEP 1
 
@@ -197,8 +198,9 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alph
         t_time = time.time()
         sys.stderr.flush()
 
-    sys.stderr.write(f'Vocabulary hits: {lm.vocab_hit}  Vocabulary misses: {lm.vocab_miss} '
-                     f'Hit percentage: {(100 * (lm.vocab_hit/(lm.vocab_hit + lm.vocab_miss)))}\%')
+    if lm:
+        sys.stderr.write(f'Vocabulary hits: {lm.vocab_hit}  Vocabulary misses: {lm.vocab_miss} '
+                         f'Hit percentage: {(100 * (lm.vocab_hit/(lm.vocab_hit + lm.vocab_miss)))}\%')
     return A_prev[0].strip('>')
 
 
@@ -207,3 +209,114 @@ def log_sum_exp(*log_probs):
     ds = log_probs - max
     sum_of_exp = np.exp(ds).sum()
     return max + np.log(sum_of_exp)
+
+
+def extend_beam(pruned_alphabet, l, Pb_prev, Pnb_prev, ctc_t, A_prev, lm, blank_idx, alphabet, alpha):
+    Pb_t = defaultdict(lambda: float('-inf'))
+    Pnb_t = defaultdict(lambda: float('-inf'))
+    for c in pruned_alphabet:
+        c_ix = alphabet.index(c)
+
+        # Extending with a blank
+        if c == 'N':
+            Pb_t[l] = log_sum_exp(
+                Pb_t[l],
+                ctc_t[blank_idx] + log_sum_exp(
+                    Pb_prev[l],
+                    Pnb_prev[l]
+                )
+            )
+
+        else:
+            l_plus = l + c
+            # Extending with a repeated character
+            if len(l) > 0 and c == l[-1]:
+                Pnb_t[l_plus] = log_sum_exp(
+                    Pnb_t[l_plus],
+                    ctc_t[c_ix] + Pb_prev[l]
+                )
+
+                Pnb_t[l] = log_sum_exp(
+                    Pnb_t[l],
+                    ctc_t[c_ix] + Pnb_prev[l]
+                )
+
+            # Extend with any other non-blank character and LM constraints
+            elif len(l.replace(' ', '')) > 0 and (c in (' ', '>') or (lm and lm.is_character_based())):
+                lm_log_prob = lm.get_log_cond_prob(l_plus.strip(' >')) * alpha
+                Pnb_t[l_plus] = log_sum_exp(
+                    Pnb_t[l_plus],
+                    lm_log_prob + ctc_t[c_ix] + log_sum_exp(
+                        Pb_prev[l],
+                        Pnb_prev[l]
+                    )
+                )
+            else:
+                Pnb_t[l_plus] = log_sum_exp(
+                    Pnb_t[l_plus],
+                    ctc_t[c_ix] + log_sum_exp(
+                        Pb_prev[l],
+                        Pnb_prev[l]
+                    )
+                )
+
+            # Make use of discarded prefixes
+            if l_plus not in A_prev:
+                Pnb_prev[l] = log_sum_exp(
+                    Pnb_prev[l],
+                    ctc_t[blank_idx] + log_sum_exp(
+                        Pb_prev[l_plus],
+                        Pnb_prev[l_plus]
+                    )
+                )
+
+                Pnb_t[l_plus] = log_sum_exp(
+                    Pnb_t[l_plus],
+                    ctc_t[c_ix] + Pnb_prev[l_plus]
+                )
+    return dict(Pb_t), dict(Pnb_t)
+
+
+def prefix_beam_search_parallel(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alpha=2.0, beta=1.5, n_jobs=8):
+    lm = LanguageModel(lm) if lm else None
+    W = lambda l: re.findall(r'\w+[\s|>]', l)
+    blank_idx = 0  # The blank character is the first character
+    F = ctc.shape[1]
+    ctc = np.log(np.vstack((np.zeros(F), ctc)))  # just add an imaginative zero'th step (will make indexing more intuitive)
+    T = ctc.shape[0]
+    log_threshold = np.log(threshold)
+
+    # STEP 1: Initiliazation
+    O = ''
+    default_log_zero = lambda: float('-inf')
+    Pb_prev, Pnb_prev = defaultdict(default_log_zero), defaultdict(default_log_zero)
+    Counter()
+    Pb_prev[O] = np.log(1)
+    A_prev = [O]
+
+    with Parallel(n_jobs) as parallel:
+        t_time = time.time()
+        for t in range(1, T):
+            pruned_alphabet = [alphabet[i] for i in np.where(ctc[t] > log_threshold)[0]]
+            results = parallel(delayed(extend_beam)(pruned_alphabet, l, Pb_prev, Pnb_prev, ctc[t], A_prev, lm, blank_idx, alphabet, alpha) for l in A_prev)
+            Pb_prev.clear()
+            Pb_prev.update(merge_dict_list([r[0] for r in results]))
+            Pnb_prev.clear()
+            Pnb_prev.update(merge_dict_list([r[1] for r in results]))
+
+            # Select most probable prefixes
+            A_next = {**Pb_prev, **Pnb_prev}
+
+            sorter = lambda l: A_next[l] + (len(l) + 1) * beta
+            # sorter = lambda l: A_next[l] * (len(W(l)) + 1) ** beta
+            A_prev = sorted(A_next, key=sorter, reverse=True)[:beam_size]
+
+            sys.stderr.write(f'\r{1 / (time.time() - t_time)}tps')
+            t_time = time.time()
+            sys.stderr.flush()
+
+def merge_dict_list(dicts):
+    res = {}
+    for d in dicts:
+        res = {**res, **d}
+    return res
