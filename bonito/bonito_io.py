@@ -10,7 +10,6 @@ from multiprocessing import Process, Queue
 
 from tqdm import tqdm
 import mappy
-
 from bonito.decode import decode, prefix_beam_search, prefix_beam_search_parallel, decode_ref
 from bonito.util import get_raw_data, get_raw_hdf5_data, accuracy, alt_calc_read_length_accuracy
 
@@ -147,8 +146,9 @@ class TunerProcess(Process):
             read_id, predictions, reference = job
             sequence = self.decode(predictions, self.alphabet, self.beamsize, **self.kwargs)
             # measure basecalling accuracy here
-            acc = alt_calc_read_accuracy(read_id, (decode_ref(reference, self.alphabet), sequence))
-            self.accuracies.append(acc)
+            if 4000 <= len(sequence) <= 5000:
+                acc = alt_calc_read_length_accuracy(read_id, (decode_ref(reference, self.alphabet), sequence))
+                self.accuracies.append(acc)
             sys.stdout.write(">%s\n" % read_id)
             sys.stdout.write("%s\n" % os.linesep.join(wrap(sequence, self.wrap)))
             sys.stdout.flush()
