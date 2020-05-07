@@ -5,37 +5,60 @@ Tune Prefix beam-search parameters
 import sys
 import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from multiprocessing import Queue
 
 from bonito.util import load_model
 from bonito.bonito_io import HDF5Reader, TunerProcess
-from sklearn.model_selection import GridSearchCV
+from bonito.decode import LanguageModel
+from hyperopt import hp, fmin, tpe
+import queue
 
 import torch
 import numpy as np
 
 
 def main(args):
+    space = [hp.uniform('alpha', 0, 2), hp.uniform('beta', 0, 2), args]
 
     sys.stderr.write("> loading model\n")
-    model = load_model(args.model_directory, args.device, weights=int(args.weights), half=args.half)
 
+    best = fmin(lambda x: -1 * objective(x), space, algo=tpe.suggest, max_evals=10)
+    print(best)
+
+
+def objective(args):
+    alpha, beta, args = args
+    print(f'basecalling with alpha: {alpha} beta: {beta}')
+    model = load_model(args.model_directory, args.device, weights=int(args.weights), half=args.half)
+    lm = LanguageModel(args.lm)
     samples = 0
     num_reads = 0
     max_read_size = 1e9
     dtype = np.float16 if args.half else np.float32
     reader = HDF5Reader(args.hdf5)
-    tuner = TunerProcess(model.alphabet, args.beamsize, decoder='pbs',
-                           lm=args.lm)
+    n_decoder_processes = 16
+    processes = []
+    posteriors_queue = Queue()
+    output_queue = Queue()
 
     t0 = time.perf_counter()
     sys.stderr.write("> calling\n")
 
-    with tuner, reader, torch.no_grad():
+    for i in range(n_decoder_processes):
+        p = TunerProcess(posteriors_queue, output_queue, model.alphabet, args.beamsize, decoder='pbs', lm=lm, alpha=alpha, beta=beta)
+        processes.append(p)
+        p.start()
+    print('Decoder processes started')
+
+    with reader, torch.no_grad():
 
         while True:
 
             read = reader.queue.get()
             if read is None:
+                # Add n_decoder_processes END messages such that each process can read an END message
+                for i in range(n_decoder_processes):
+                    posteriors_queue.put('END')
                 break
 
             read_id, raw_data, reference = read
@@ -51,16 +74,27 @@ def main(args):
             gpu_data = torch.tensor(raw_data).to(args.device)
             posteriors = model(gpu_data).exp().cpu().numpy().squeeze()
 
-            tuner.queue.put((read_id, posteriors, reference))
-    avg_acc = sum(tuner.accuracies) / len(tuner.accuracies)
-    sys.stderr.write("average accuracy: ", avg_acc)
+            posteriors_queue.put((read_id, posteriors, reference))
+    print('all posteriors done')
 
-    duration = time.perf_counter() - t0
+    accuracies = []
+    for i in range(n_decoder_processes):
+        while True:
+            try:
+                accuracy = output_queue.get()
+            except queue.Empty:
+                continue
+            if accuracy == 'END':
+                break
+            accuracies.append(accuracy)
 
-    sys.stderr.write("> completed reads: %s\n" % num_reads)
-    sys.stderr.write("> samples per second %.1E\n" % (samples / duration))
-    sys.stderr.write(f"> time elapsed: {duration} seconds\n")
-    sys.stderr.write("> done\n")
+    for p in processes:
+        p.join()
+
+    avg_acc = sum(accuracies) / len(accuracies)
+    print(f'average accuracy: {avg_acc}')
+    sys.stderr.write(f"> time elapsed: {time.perf_counter() - t0} seconds\n")
+    return avg_acc
 
 
 def argparser():

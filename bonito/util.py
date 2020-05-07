@@ -268,7 +268,7 @@ def accuracy(ref, seq, balanced=False):
 
 # Read length accuracy using minimap2 and ryan wicks read_length_accuracy calculations
 def alt_calc_read_length_accuracy(read_id, ref, prediction):
-    read_alignments = collections.defaultdict(list)
+    read_alignments = defaultdict(list)
     aligner = mp.Aligner(ref, preset="map-ont")
     if not aligner:
         print("Failed to load/build index")

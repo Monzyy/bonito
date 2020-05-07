@@ -13,7 +13,7 @@ import csv
 import sys
 from joblib import Parallel, delayed
 
-OOV_SCORE = 0 # ~ log(1)
+OOV_SCORE = float('-inf')  # log(0)
 
 
 class LanguageModel:
@@ -57,6 +57,13 @@ def decode_ref(encoded, labels):
     return ''.join(labels[e] for e in encoded if e)
 
 
+def decode_sequence(encoded, labels):
+    """
+    Convert an integer encoded sequence into a string
+    """
+    return ''.join(labels[e] for e in encoded)
+
+
 def greedy_ctc_decode(predictions, labels):
     """
     Greedy argmax decoder with collapsing repeats
@@ -65,7 +72,7 @@ def greedy_ctc_decode(predictions, labels):
     return ''.join([labels[b] for b, g in groupby(path) if b])
 
 
-def decode(predictions, alphabet, beam_size=5, threshold=0.1):
+def decode(predictions, alphabet, beam_size=5, threshold=0.1, **kwargs):
     """
     Decode model posteriors to sequence
     """
@@ -75,7 +82,7 @@ def decode(predictions, alphabet, beam_size=5, threshold=0.1):
     return beam_search(predictions.astype(np.float32), alphabet, beam_size, threshold)
 
 
-def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alpha=1, beta=1):
+def prefix_beam_search(ctc, alphabet, beam_size=5, threshold=0.1, lm=None, alpha=1, beta=1):
     """
     Performs prefix beam search on the output of a CTC network.
     Args:
@@ -90,11 +97,11 @@ def prefix_beam_search(ctc, alphabet, beam_size=25, threshold=0.1, lm=None, alph
         string: The decoded CTC output.
     """
 
-    lm = LanguageModel(lm) if lm else None
     W = lambda l: re.findall(r'\w+[\s|>]', l)
     blank_idx = 0  # The blank character is the first character
     F = ctc.shape[1]
-    ctc = np.log(np.vstack((np.zeros(F), ctc)))  # just add an imaginative zero'th step (will make indexing more intuitive)
+    ctc = np.log(ctc)
+    ctc = np.vstack((np.zeros(F), ctc))  # just add an imaginative zero'th step (will make indexing more intuitive)
     T = ctc.shape[0]
     log_threshold = np.log(threshold)
 
