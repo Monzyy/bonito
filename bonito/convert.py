@@ -1,16 +1,18 @@
 #!/usr/bin/env python
 
 """
-Convert a chunkify training file
+Convert a Taiyaki chunkify training file to set of Bonito CTC .npy files
 """
 
 import os
 import h5py
+import toml
 import random
 import numpy as np
 from bisect import bisect_left
 from argparse import ArgumentParser
 from itertools import chain, zip_longest, groupby
+from argparse import ArgumentDefaultsHelpFormatter
 
 
 def align(samples, pointers, reference):
@@ -71,6 +73,7 @@ def main(args):
     off_the_end_ref = 0
     off_the_end_sig = 0
     min_run_count = 0
+    read_too_short = 0
     homopolymer_boundary = 0
 
     total_reads = num_reads(args.chunkify_file)
@@ -81,20 +84,23 @@ def main(args):
     targets = np.zeros((args.chunks, args.max_seq_len), dtype=np.uint8)
     target_lengths = np.zeros(args.chunks, dtype=np.uint16)
 
+    with open(os.path.join(args.output_directory, 'config.toml'), 'w') as conf:
+        toml.dump(dict(chunks=vars(args)), conf)
+
     for read_id, samples, reference, pointers in get_reads(args.chunkify_file):
 
         read_idx += 1
 
         squiggle_duration = len(samples)
-        sequence_length = len(reference) - 1
+        sequence_length = len(reference) - args.offset - 1
 
-        if sequence_length < args.min_seq_len:
-            print(samples)
-            print(read_id, squiggle_duration, len(pointers), mapped_off_the_end, sequence_length)
+        if sequence_length < args.max_seq_len + args.offset:
+            read_too_short += 1
+            continue
 
         # first chunk
-        seq_starts = 0
-        seq_ends = np.random.randint(args.min_seq_len, args.max_seq_len)
+        seq_starts = args.offset
+        seq_ends = seq_starts + np.random.randint(args.min_seq_len, args.max_seq_len)
 
         repick = int((args.max_seq_len - args.min_seq_len) / 2)
         while boundary(reference[seq_starts:seq_ends]) and repick:
@@ -184,6 +190,7 @@ def main(args):
     print("Reason for skipping:")
     print("  - off the end (signal)          ", off_the_end_sig)
     print("  - off the end (sequence)        ", off_the_end_ref)
+    print("  - read too short (sequence)     ", read_too_short)
     print("  - homopolymer chunk boundary    ", homopolymer_boundary)
     print("  - longest run too short         ", min_run_count)
     print("  - minimum number of bases       ", min_bases)
@@ -195,28 +202,44 @@ def main(args):
         targets = np.delete(targets, np.s_[chunk_count:], axis=0)
         target_lengths = target_lengths[:chunk_count]
 
-    np.save(os.path.join(args.output_directory, "chunks.npy"), chunks)
-    np.save(os.path.join(args.output_directory, "chunk_lengths.npy"), chunk_lengths)
-    np.save(os.path.join(args.output_directory, "references.npy"), targets)
-    np.save(os.path.join(args.output_directory, "reference_lengths.npy"), target_lengths)
+    if args.chunks > args.validation_chunks:
+        split = args.validation_chunks
+        vdir = os.path.join(args.output_directory, "validation")
+        os.makedirs(vdir, exist_ok=True)
+        np.save(os.path.join(vdir, "chunks.npy"), chunks[:split])
+        np.save(os.path.join(vdir, "chunk_lengths.npy"), chunk_lengths[:split])
+        np.save(os.path.join(vdir, "references.npy"), targets[:split])
+        np.save(os.path.join(vdir, "reference_lengths.npy"), target_lengths[:split])
+    else:
+        split = 0
+
+    np.save(os.path.join(args.output_directory, "chunks.npy"), chunks[split:])
+    np.save(os.path.join(args.output_directory, "chunk_lengths.npy"), chunk_lengths[split:])
+    np.save(os.path.join(args.output_directory, "references.npy"), targets[split:])
+    np.save(os.path.join(args.output_directory, "reference_lengths.npy"), target_lengths[split:])
 
     print()
     print("Training data written to %s:" % args.output_directory)
-    print("  - chunks.npy with shape", chunks.shape)
-    print("  - chunk_lengths.npy with shape", chunk_lengths.shape)
-    print("  - references.npy with shape", targets.shape)
-    print("  - reference_lengths.npy shape", target_lengths.shape)
+    print("  - chunks.npy with shape", chunks[split:].shape)
+    print("  - chunk_lengths.npy with shape", chunk_lengths[split:].shape)
+    print("  - references.npy with shape", targets[split:].shape)
+    print("  - reference_lengths.npy shape", target_lengths[split:].shape)
 
 
-if __name__ == "__main__":
-    parser = ArgumentParser()
+def argparser():
+    parser = ArgumentParser(
+        formatter_class=ArgumentDefaultsHelpFormatter,
+        add_help=False
+    )
     parser.add_argument("chunkify_file")
     parser.add_argument("output_directory")
     parser.add_argument("--seed", default=25, type=int)
     parser.add_argument("--chunks", default=10000000, type=int)
+    parser.add_argument("--validation-chunks", default=1000, type=int)
+    parser.add_argument("--offset", default=200, type=int)
     parser.add_argument("--min-run", default=5, type=int)
     parser.add_argument("--min-seq-len", default=200, type=int)
     parser.add_argument("--max-seq-len", default=400, type=int)
     parser.add_argument("--min-samples-per-base", default=8, type=int)
     parser.add_argument("--max-samples-per-base", default=12, type=int)
-    main(parser.parse_args())
+    return parser

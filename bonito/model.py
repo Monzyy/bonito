@@ -1,16 +1,30 @@
 """
 Bonito Model template
 """
+from bonito.decode import prefix_beam_search
 
 import torch.nn as nn
-from torch.nn import GELU, ReLU, LeakyReLU
+from torch import sigmoid
+from torch.nn import ReLU, LeakyReLU
 from torch.nn import Module, ModuleList, Sequential, Conv1d, BatchNorm1d, Dropout
+
+from fast_ctc_decode import beam_search, viterbi_search
+
+
+class Swish(Module):
+    """
+    Swish Activation function
+
+    https://arxiv.org/abs/1710.05941
+    """
+    def forward(self, x):
+        return x * sigmoid(x)
 
 
 activations = {
-    "gelu": GELU,
     "relu": ReLU,
     "leaky_relu": LeakyReLU,
+    "swish": Swish,
 }
 
 
@@ -22,6 +36,12 @@ class Model(Module):
     """
     def __init__(self, config):
         super(Model, self).__init__()
+        if 'qscore' not in config:
+            self.qbias = 0.0
+            self.qscale = 1.0
+        else:
+            self.qbias = config['qscore']['bias']
+            self.qscale = config['qscore']['scale']
         self.stride = config['block'][0]['stride'][0]
         self.alphabet = config['labels']['labels']
         self.features = config['block'][-1]['filters']
@@ -31,6 +51,17 @@ class Model(Module):
     def forward(self, x):
         encoded = self.encoder(x)
         return self.decoder(encoded)
+
+    def decode(self, x, beamsize=5, threshold=1e-3, qscores=False, return_path=False, decoder=None, **kwargs):
+        if decoder == 'py_pbs':
+            seq, path = prefix_beam_search(x, self.alphabet, beamsize, threshold,
+                                           kwargs['lm'], kwargs['alpha'], kwargs['beta'])
+        elif beamsize == 1 or qscores:
+            seq, path = viterbi_search(x, self.alphabet, qscores, self.qscale, self.qbias)
+        else:
+            seq, path = beam_search(x, self.alphabet, beamsize, threshold)
+        if return_path: return seq, path
+        return seq
 
 
 class Encoder(Module):
@@ -61,7 +92,7 @@ class Encoder(Module):
         self.encoder = Sequential(*encoder_layers)
 
     def forward(self, x):
-        return self.encoder([x])
+        return self.encoder(x)
 
 
 class TCSConv1d(Module):
@@ -161,12 +192,12 @@ class Block(Module):
         ]
 
     def forward(self, x):
-        _x = x[0]
+        _x = x
         for layer in self.conv:
             _x = layer(_x)
         if self.use_res:
-            _x += self.residual(x[0])
-        return [self.activation(_x)]
+            _x += self.residual(x)
+        return self.activation(_x)
 
 
 class Decoder(Module):
@@ -178,5 +209,5 @@ class Decoder(Module):
         self.layers = Sequential(Conv1d(features, classes, kernel_size=1, bias=True))
 
     def forward(self, x):
-        x = self.layers(x[-1])
+        x = self.layers(x)
         return nn.functional.log_softmax(x.transpose(1, 2), dim=2)

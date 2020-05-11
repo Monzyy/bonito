@@ -11,55 +11,79 @@ A convolutional basecaller inspired by QuartzNet.
  - CTC training.
  - Small Python codebase.
 
-# Installation
-
-```bash
-$ pip install ont-bonito
-```
-
-## Scripts
-
- - `bonito view` - view a model architecture for a given `.toml` file and the number of parameters in the network.
- - `bonito tune` - tune network hyperparameters.
- - `bonito train` - train a bonito model.
- - `bonito evaluate` - evaluate a model performance on a chunk basis.
- - `bonito basecaller` - basecaller *(`.fast5` -> `.fasta`)*.
-
 ## Basecalling
 
 ```bash
-(venv3) $ bonito basecaller dna_r9.4.1 /data/reads > basecalls.fasta
+$ pip install ont-bonito
+$ bonito basecaller dna_r9.4.1 /data/reads > basecalls.fasta
 ```
 
 If you have a `turing` or `volta` GPU the `--half` flag can be uses to increase performance.
 
-## Training a model
+## Training your own model
+
+To train your own model first download the training data.
 
 ```bash
-(venv3) $ # download the training data and train a model with the default settings
-(venv3) $ ./scripts/get-training-data
-(venv3) $ bonito train ./data/model-dir ./config/quartznet5x5.toml
-(venv3) $ 
-(venv3) $ # train on the first gpu, use mixed precision, larger batch size and 1,000,000 chunks
-(venv3) $ export CUDA_VISIBLE_DEVICES=0
-(venv3) $ bonito train ./data/model-dir ./config/quartznet5x5.toml --amp --batch 64 --chunks 1000000
+$ bonito download --training
+$ bonito train --amp /data/model-dir
 ```
 
-Automatic mixed precision can be used to speed up training by passing the `--amp` flag *(however [apex](https://github.com/nvidia/apex#quick-start) needs to be installed manually)*.
+Automatic mixed precision can be used to speed up training with the `--amp` flag *(however [apex](https://github.com/nvidia/apex#quick-start) needs to be installed manually)*.
+
+For multi-gpu training use the `$CUDA_VISIBLE_DEVICES` environment variable to select which GPUs and add the `--multi-gpu` flag.
+
+```bash
+$ export CUDA_VISIBLE_DEVICES=0,1,2,3
+$ bonito train --amp --multi-gpu --batch 256 /data/model-dir
+```
+
+To evaluate the pretrained model run `bonito evaluate dna_r9.4.1 --half`.
+
+For a model you have trainined yourself, replace `dna_r9.4.1` with the model directory.
+
+## Interface
+
+ - `bonito view` - view a model architecture for a given `.toml` file and the number of parameters in the network.
+ - `bonito tune` - distributed tuning of network hyperparameters.
+ - `bonito train` - train a bonito model.
+ - `bonito convert` - convert a hdf5 training file into a bonito format.
+ - `bonito evaluate` - evaluate a model performance.
+ - `bonito download` - download pretrained models and training datasets.
+ - `bonito basecaller` - basecaller *(`.fast5` -> `.fasta`)*.
 
 ## Developer Quickstart
 
 ```bash
-$ git clone https://github.com/nanoporetech/bonito.git
+$ git clone https://github.com/nanoporetech/bonito.git  # or fork first and clone that
 $ cd bonito
 $ python3 -m venv venv3
 $ source venv3/bin/activate
 (venv3) $ pip install --upgrade pip
 (venv3) $ pip install -r requirements.txt
 (venv3) $ python setup.py develop
+(venv3) $ bonito download --all
 ```
 
-The pretrained models can be downloaded by running `./scripts/get-models`.
+## Medaka
+
+An pre-release Medaka can be downloaded from [here](https://nanoporetech.box.com/shared/static/oukeesfjc6406t5po0x2hlw97lnelkyl.hdf5).
+
+It has been trained on Zymo: *E. faecalis, P. aeruginosa, S. enterica1, S.aureus and E.coli (with L. monocytogenes and B. subtilis held out)*.
+
+
+| Coverage | B. subtilis | E. coli | E. faecalis | L. monocytogenes | S. aureus | S. enterica |
+| -------- |:-----------:|:-------:|:-----------:|:----------------:|:---------:|:-----------:|
+|       25 |       36.20 |   37.96 |       36.38 |            36.95 |     39.21 |       37.24 |
+|       50 |       40.63 |   42.22 |       40.97 |            43.01 |     45.23 |       41.55 |
+|       75 |       42.22 |   43.98 |       43.01 |            43.98 |     50.00 |       43.98 |
+|      100 |       45.23 |   45.23 |       44.56 |            45.23 |     50.00 |       45.23 |
+|      125 |       45.23 |   45.42 |       45.23 |            46.99 |     50.00 |       45.23 |
+|      150 |       45.23 |   45.23 |       46.99 |            46.99 |     50.00 |       46.99 |
+|      175 |       46.99 |   46.99 |       45.23 |            48.24 |     50.00 |       46.99 |
+|      200 |       45.23 |   45.23 |       46.99 |            46.99 |     50.00 |       46.99 |
+
+*Note: We working on training a full release model from a broader training set that we expect to generalises better.*
 
 ### References
 

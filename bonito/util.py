@@ -17,6 +17,7 @@ import toml
 import torch
 import parasail
 import numpy as np
+from scipy.signal import find_peaks
 from ont_fast5_api.fast5_interface import get_fast5_file
 
 try:
@@ -27,7 +28,14 @@ except ImportError:
 
 
 __dir__ = os.path.dirname(os.path.realpath(__file__))
+__data__ = os.path.join(__dir__, "data")
+__models__ = os.path.join(__dir__, "models")
+__configs__ = os.path.join(__models__, "configs")
+__url__ = "https://nanoporetech.box.com/shared/static/"
+
 split_cigar = re.compile(r"(?P<len>\d+)(?P<op>\D+)")
+default_data = os.path.join(__data__, "dna_r9.4.1")
+default_config = os.path.join(__configs__, "quartznet5x5.toml")
 
 
 def init(seed, device):
@@ -46,6 +54,22 @@ def init(seed, device):
     assert(torch.cuda.is_available())
 
 
+def phred(prob, scale=1.0, bias=0.0):
+    """
+    Converts `prob` into a ascii encoded phred quality score between 0 and 40.
+    """
+    p = max(1 - prob, 1e-4)
+    q = -10 * np.log10(p) * scale + bias
+    return chr(int(np.round(q) + 33))
+
+
+def decode_ref(encoded, labels):
+    """
+    Convert a integer encoded reference into a string and remove blanks
+    """
+    return ''.join(labels[e] for e in encoded if e)
+
+
 def med_mad(x, factor=1.4826):
     """
     Calculate signal median and median absolute deviation
@@ -55,38 +79,28 @@ def med_mad(x, factor=1.4826):
     return med, mad
 
 
-def trim(signal, window_size=40, threshold_factor=3.0, min_elements=3):
+def norm_by_noisiest_section(signal, samples=100, threshold=6.0):
+    """
+    Normalise using the medmad from the longest continuous region where the
+    noise is above some threshold relative to the std of the full signal.
+    """
+    threshold = signal.std() / threshold
+    noise = np.ones(signal.shape)
 
-    med, mad = med_mad(signal[-(window_size*25):])
-    threshold = med + mad * threshold_factor
-    num_windows = len(signal) // window_size
+    for idx in np.arange(signal.shape[0] // samples):
+        window = slice(idx * samples, (idx + 1) * samples)
+        noise[window] = np.where(signal[window].std() > threshold, 1, 0)
 
-    for pos in range(num_windows):
+    # start and end low for peak finding
+    noise[0] = 0; noise[-1] = 0
+    peaks, info = find_peaks(noise, width=(None, None))
 
-        start = pos * window_size
-        end = start + window_size
-
-        window = signal[start:end]
-
-        if len(window[window > threshold]) > min_elements:
-            if window[-1] > threshold:
-                continue
-            return end, len(signal)
-
-    return 0, len(signal)
-
-
-def preprocess(x, min_samples=1000):
-    start, end = trim(x)
-    # REVISIT: we can potentially trim all the signal if this goes wrong
-    if end - start < min_samples:
-        start = 0
-        end = len(x)
-        #sys.stderr.write("badly trimmed read\n")
-
-    med, mad = med_mad(x[start:end])
-    norm_signal = (x[start:end] - med) / mad
-    return norm_signal
+    if len(peaks):
+        widest = np.argmax(info['widths'])
+        med, mad = med_mad(signal[info['left_bases'][widest]: info['right_bases'][widest]])
+    else:
+        med, mad = med_mad(signal)
+    return (signal - med) / mad
 
 
 def get_raw_data(filename):
@@ -100,7 +114,7 @@ def get_raw_data(filename):
             scaling = channel_info['range'] / channel_info['digitisation']
             offset = int(channel_info['offset'])
             scaled = np.array(scaling * (raw + offset), dtype=np.float32)
-            yield read.read_id, preprocess(scaled)
+            yield read.read_id, norm_by_noisiest_section(scaled)
 
 
 def get_raw_hdf5_data(file_name):
@@ -114,7 +128,7 @@ def get_raw_hdf5_data(file_name):
             offset = int(channel_info['offset'])
             scaled = np.array(scaling * (raw + offset), dtype=np.float32)
             reference = read['Reference'][:]
-            yield read_id, preprocess(scaled), reference
+            yield read_id, norm_by_noisiest_section(scaled), reference
 
 
 def window(data, size, stepsize=1, padded=False, axis=-1):
@@ -155,12 +169,15 @@ def stitch(predictions, overlap):
     return np.concatenate(stitched)
 
 
-def load_data(shuffle=False, limit=None, directory=None):
+def load_data(shuffle=False, limit=None, directory=None, validation=False):
     """
     Load the training data
     """
     if directory is None:
-        directory = os.path.join(__dir__, "data")
+        directory = default_data
+
+    if validation and os.path.exists(os.path.join(directory, 'validation')):
+        directory = os.path.join(directory, 'validation')
 
     chunks = np.load(os.path.join(directory, "chunks.npy"), mmap_mode='r')
     chunk_lengths = np.load(os.path.join(directory, "chunk_lengths.npy"), mmap_mode='r')
@@ -187,8 +204,8 @@ def load_model(dirname, device, weights=None, half=False):
     """
     Load a model from disk
     """
-    if not os.path.isdir(dirname) and os.path.isdir(os.path.join(__dir__, "models", dirname)):
-        dirname = os.path.join(__dir__, "models", dirname)
+    if not os.path.isdir(dirname) and os.path.isdir(os.path.join(__models__, dirname)):
+        dirname = os.path.join(__models__, dirname)
 
     if not weights: # take the latest checkpoint
         weight_files = glob(os.path.join(dirname, "weights_*.tar"))
@@ -200,7 +217,6 @@ def load_model(dirname, device, weights=None, half=False):
     config = os.path.join(dirname, 'config.toml')
     weights = os.path.join(dirname, 'weights_%s.tar' % weights)
     model = Model(toml.load(config))
-    model.to(device)
 
     state_dict = torch.load(weights, map_location=device)
     new_state_dict = OrderedDict()
@@ -212,6 +228,7 @@ def load_model(dirname, device, weights=None, half=False):
 
     if half: model = model.half()
     model.eval()
+    model.to(device)
     return model
 
 

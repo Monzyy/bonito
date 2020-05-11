@@ -45,7 +45,8 @@ def objective(args):
     sys.stderr.write("> calling\n")
 
     for i in range(n_decoder_processes):
-        p = TunerProcess(posteriors_queue, output_queue, model.alphabet, args.beamsize, decoder='pbs', lm=lm, alpha=alpha, beta=beta)
+        p = TunerProcess(posteriors_queue, output_queue, model, args.beamsize,
+                         decoder=args.decoder, lm=lm, alpha=alpha, beta=beta)
         processes.append(p)
         p.start()
     print('Decoder processes started')
@@ -109,4 +110,5 @@ def argparser():
     parser.add_argument("--beamsize", default=5, type=int)
     parser.add_argument("--half", action="store_true", default=False)
     parser.add_argument("--lm", type=str)
+    parser.add_argument("--decoder", type=str, default='py_pbs')
     return parser

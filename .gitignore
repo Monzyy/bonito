@@ -4,8 +4,7 @@
 venv3/
 *.lprof
 *.egg-info/
-bonito/data/*.npy
-bonito/data/*.zip
+bonito/data/*
 bonito/models/*
 dist/
 *.f[aq]
@@ -19,5 +18,5 @@ Untitled*.ipynb
 *.log
 *.db
 *.sqlite3
-
 \.idea/
+*.deb

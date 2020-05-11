@@ -20,10 +20,10 @@ def main(args):
 
     samples = 0
     num_reads = 0
-    max_read_size = 1e9
+    max_read_size = 4e6
     dtype = np.float16 if args.half else np.float32
     reader = PreprocessReader(args.reads_directory)
-    writer = DecoderWriter(model.alphabet, args.beamsize, decoder=args.decoder,
+    writer = DecoderWriter(model, beamsize=args.beamsize, fastq=args.fastq, decoder=args.decoder,
                            lm=args.lm, alpha=args.alpha, beta=args.beta)
 
     t0 = time.perf_counter()
@@ -40,8 +40,8 @@ def main(args):
             read_id, raw_data = read
 
             if len(raw_data) > max_read_size:
-                sys.stderr.write("> skipping %s: %s too long\n" % (len(raw_data), read_id))
-                pass
+                sys.stderr.write("> skipping long read %s (%s samples)\n" % (read_id, len(raw_data)))
+                continue
 
             num_reads += 1
             samples += len(raw_data)
@@ -50,7 +50,7 @@ def main(args):
             gpu_data = torch.tensor(raw_data).to(args.device)
             posteriors = model(gpu_data).exp().cpu().numpy().squeeze()
 
-            writer.queue.put((read_id, posteriors))
+            writer.queue.put((read_id, posteriors.astype(np.float32)))
 
     duration = time.perf_counter() - t0
 
@@ -75,4 +75,5 @@ def argparser():
     parser.add_argument("--lm", type=str)
     parser.add_argument("--alpha", type=float)
     parser.add_argument("--beta", type=float)
+    parser.add_argument("--fastq", action="store_true", default=False)
     return parser

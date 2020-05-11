@@ -96,6 +96,8 @@ def prefix_beam_search(ctc, alphabet, beam_size=5, threshold=0.1, lm=None, alpha
     Returns:
         string: The decoded CTC output.
     """
+    if isinstance(lm, str):
+        lm = LanguageModel(lm)
 
     W = lambda l: re.findall(r'\w+[\s|>]', l)
     blank_idx = 0  # The blank character is the first character
@@ -208,7 +210,7 @@ def prefix_beam_search(ctc, alphabet, beam_size=5, threshold=0.1, lm=None, alpha
     #if lm:
     #    sys.stderr.write(f'Vocabulary hits: {lm.vocab_hit}  Vocabulary misses: {lm.vocab_miss} '
     #                     f'Hit percentage: {(100 * (lm.vocab_hit/(lm.vocab_hit + lm.vocab_miss)))}\%')
-    return A_prev[0].strip('>')
+    return A_prev[0].strip('>'), []
 
 
 def log_sum_exp(*log_probs):

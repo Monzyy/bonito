@@ -9,9 +9,8 @@ from itertools import starmap
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.training import ChunkDataSet
-from bonito.decode import decode, decode_ref
+from bonito.util import accuracy, poa, decode_ref
 from bonito.util import init, load_data, load_model
-from bonito.util import  accuracy, poa, print_alignment
 
 from torch.utils.data import DataLoader
 
@@ -23,7 +22,7 @@ def main(args):
 
     print("* loading data")
     testdata = ChunkDataSet(
-        *load_data(limit=args.chunks, shuffle=args.shuffle, directory=args.directory)
+        *load_data(limit=args.chunks, shuffle=args.shuffle, directory=args.directory, validation=True)
     )
     dataloader = DataLoader(testdata, batch_size=args.batchsize)
 
@@ -48,7 +47,7 @@ def main(args):
         duration = time.perf_counter() - t0
 
         references = [decode_ref(target, model.alphabet) for target in dataloader.dataset.targets]
-        sequences = [decode(post, model.alphabet, args.beamsize) for post in np.concatenate(predictions)]
+        sequences = [model.decode(post, beamsize=args.beamsize) for post in np.concatenate(predictions)]
         accuracies = list(starmap(accuracy, zip(references, sequences)))
 
         if args.poa: poas.append(sequences)

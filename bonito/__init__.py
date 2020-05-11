@@ -1,6 +1,8 @@
 import os, sys
 
-__version__ = '0.0.7'
+modules = ['basecaller', 'evaluate', 'view', 'convert', 'download', 'tune_pbs']
+
+__version__ = '0.1.5'
 
 
 def main():
@@ -20,7 +22,7 @@ def main():
     )
     subparsers.required = True
 
-    for module in ('basecaller', 'evaluate', 'train', 'view', 'tune', 'tune_pbs'):
+    for module in modules:
         mod = globals()[module]
         p = subparsers.add_parser(module, parents=[mod.argparser()])
         p.set_defaults(func=mod.main)
@@ -33,5 +35,12 @@ if __name__ == '__main__':
     this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.append(this_dir)
     from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-    from bonito import basecaller, evaluate, train, view, tune, tune_pbs
+    from bonito import basecaller, convert, download, evaluate, view, tune_pbs
+
+    try:
+        from bonito import train, tune
+
+        modules.extend(['train', 'tune'])
+    except ImportError:
+        pass
     main()

@@ -2,11 +2,13 @@
 Bonito train
 """
 
+import os
+import re
 import time
+from glob import glob
 from itertools import starmap
 
-from bonito.util import accuracy
-from bonito.decode import decode, decode_ref
+from bonito.util import accuracy, decode_ref
 
 import torch
 import numpy as np
@@ -37,6 +39,46 @@ class ChunkDataSet:
 
     def __len__(self):
         return len(self.chunks)
+
+
+def load_state(dirname, device, model, optim, use_amp=False):
+    """
+    Load a model and optimizer state dict from disk
+    """
+    model.to(device)
+
+    if use_amp:
+        try:
+            model, optimizer = amp.initialize(model, optim, opt_level="O1", verbosity=0)
+        except NameError:
+            print("[error]: Cannot use AMP: Apex package needs to be installed manually, See https://github.com/NVIDIA/apex")
+            exit(1)
+
+    weight_no = optim_no = None
+
+    weight_files = glob(os.path.join(dirname, "weights_*.tar"))
+    if weight_files:
+        weight_no = max([int(re.sub(".*_([0-9]+).tar", "\\1", w)) for w in weight_files])
+
+    optim_files = glob(os.path.join(dirname, "optim_*.tar"))
+    if optim_files:
+        optim_no = max([int(re.sub(".*_([0-9]+).tar", "\\1", w)) for w in optim_files])
+
+    if weight_no and optim_no and weight_no == optim_no:
+        print("[picking up from epoch %s]" % optim_no)
+        model_dict = torch.load(
+            os.path.join(dirname, 'weights_%s.tar' % weight_no), map_location=device
+        )
+        model.load_state_dict(model_dict)
+        optim_dict = torch.load(
+            os.path.join(dirname, 'optim_%s.tar' % optim_no), map_location=device
+        )
+        optim.load_state_dict(optim_dict)
+        epoch = weight_no
+    else:
+        epoch = 0
+
+    return epoch
 
 
 def train(model, device, train_loader, optimizer, use_amp=False):
@@ -98,7 +140,7 @@ def test(model, device, test_loader):
     lengths = np.concatenate(prediction_lengths)
 
     references = [decode_ref(target, model.alphabet) for target in test_loader.dataset.targets]
-    sequences = [decode(post[:n], model.alphabet) for post, n in zip(predictions, lengths)]
+    sequences = [model.decode(post[:n]) for post, n in zip(predictions, lengths)]
 
     if all(map(len, sequences)):
         accuracies = list(starmap(accuracy, zip(references, sequences)))
