@@ -9,6 +9,7 @@ from itertools import starmap
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.training import ChunkDataSet
+from bonito.decode import LanguageModel
 from bonito.util import accuracy, poa, decode_ref
 from bonito.util import init, load_data, load_model
 
@@ -19,6 +20,16 @@ def main(args):
 
     poas = []
     init(args.seed, args.device)
+
+    if args.lm:
+        lm = LanguageModel(args.lm)
+    else:
+        lm = None
+
+    # Build kwargs
+    kwargs = {}
+    for k, v in (('lm', lm), ('alpha', args.alpha), ('beta', args.beta)):
+        kwargs[k] = v
 
     print("* loading data")
     testdata = ChunkDataSet(
@@ -47,7 +58,8 @@ def main(args):
         duration = time.perf_counter() - t0
 
         references = [decode_ref(target, model.alphabet) for target in dataloader.dataset.targets]
-        sequences = [model.decode(post, beamsize=args.beamsize) for post in np.concatenate(predictions)]
+        sequences = [model.decode(post, beamsize=args.beamsize,
+                                  decoder=args.decoder, **kwargs) for post in np.concatenate(predictions)]
         accuracies = list(starmap(accuracy, zip(references, sequences)))
 
         if args.poa: poas.append(sequences)
@@ -88,4 +100,8 @@ def argparser():
     parser.add_argument("--beamsize", default=5, type=int)
     parser.add_argument("--poa", action="store_true", default=False)
     parser.add_argument("--shuffle", action="store_true", default=True)
+    parser.add_argument("--decoder", type=str)
+    parser.add_argument("--lm", type=str)
+    parser.add_argument("--alpha", type=float)
+    parser.add_argument("--beta", type=float)
     return parser

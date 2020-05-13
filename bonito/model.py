@@ -9,6 +9,7 @@ from torch.nn import ReLU, LeakyReLU
 from torch.nn import Module, ModuleList, Sequential, Conv1d, BatchNorm1d, Dropout
 
 from fast_ctc_decode import beam_search, viterbi_search
+import mod_fast_ctc_decode
 
 
 class Swish(Module):
@@ -56,6 +57,9 @@ class Model(Module):
         if decoder == 'py_pbs':
             seq, path = prefix_beam_search(x, self.alphabet, beamsize, threshold,
                                            kwargs['lm'], kwargs['alpha'], kwargs['beta'])
+        elif decoder == 'r_pbs':
+            seq, path = mod_fast_ctc_decode.beam_search(x, self.alphabet, beamsize, threshold,
+                                                        kwargs['lm'].log_cond_probs, kwargs['alpha'], kwargs['beta'])
         elif beamsize == 1 or qscores:
             seq, path = viterbi_search(x, self.alphabet, qscores, self.qscale, self.qbias)
         else:

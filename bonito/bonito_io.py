@@ -38,6 +38,7 @@ def write_fastq(header, sequence, qstring, fd=sys.stdout):
     fd.write("%s\n" % qstring)
     fd.flush()
 
+
 class PreprocessReader(Process):
     """
     Reader Processor that reads and processes fast5 files
@@ -68,9 +69,9 @@ class DecoderWriter(Process):
     """
     Decoder Process that writes fasta records to stdout
     """
-    def __init__(self,  model, fastq=False, beamsize=5, wrap=100, decoder=None, lm=None, alpha=None, beta=None):
+    def __init__(self, queue, model, fastq=False, beamsize=5, wrap=100, decoder=None, lm=None, alpha=None, beta=None):
         super().__init__()
-        self.queue = Queue()
+        self.queue = queue
         self.model = model
         self.wrap = wrap
         self.fastq = fastq
@@ -91,20 +92,25 @@ class DecoderWriter(Process):
 
     def run(self):
         while True:
-            job = self.queue.get()
-            if job is None: return
-            read_id, predictions = job
-            sequence, path = self.model.decode(
-                predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True,
-                decoder=self.decoder, **self.kwargs
-            )
-            if sequence:
-                if self.fastq:
-                    write_fastq(read_id, sequence[:len(path)], sequence[len(path):])
-                else:
-                    write_fasta(read_id, sequence, maxlen=self.wrap)
+            try:
+                job = self.queue.get_nowait()
+            except queue.Empty:
+                continue
             else:
-                logger.warn("> skipping empty sequence %s", read_id)
+                if job == 'END':
+                    return
+                read_id, predictions = job
+                sequence, path = self.model.decode(
+                    predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True,
+                    decoder=self.decoder, **self.kwargs
+                )
+                if sequence:
+                    if self.fastq:
+                        write_fastq(read_id, sequence[:len(path)], sequence[len(path):])
+                    else:
+                        write_fasta(read_id, sequence, maxlen=self.wrap)
+                else:
+                    logger.warn("> skipping empty sequence %s", read_id)
 
     def stop(self):
         self.queue.put(None)

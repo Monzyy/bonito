@@ -8,9 +8,11 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
 from bonito.bonito_io import DecoderWriter, PreprocessReader
+from bonito.decode import LanguageModel
 
 import torch
 import numpy as np
+from multiprocessing import Queue
 
 
 def main(args):
@@ -23,18 +25,30 @@ def main(args):
     max_read_size = 4e6
     dtype = np.float16 if args.half else np.float32
     reader = PreprocessReader(args.reads_directory)
-    writer = DecoderWriter(model, beamsize=args.beamsize, fastq=args.fastq, decoder=args.decoder,
-                           lm=args.lm, alpha=args.alpha, beta=args.beta)
+    if args.lm and args.decoder in ('r_pbs', 'py_pbs'):
+        lm = LanguageModel(args.lm)
+    else:
+        lm = None
+    posteriors_queue = Queue()
 
     t0 = time.perf_counter()
+
+    processes = []
+    for i in range(args.nprocs):
+        p = DecoderWriter(posteriors_queue, model, beamsize=args.beamsize,
+                          decoder=args.decoder, lm=lm, alpha=args.alpha, beta=args.beta)
+        processes.append(p)
+        p.start()
     sys.stderr.write("> calling\n")
 
-    with writer, reader, torch.no_grad():
+    with reader, torch.no_grad():
 
         while True:
 
             read = reader.queue.get()
             if read is None:
+                for i in range(args.nprocs):
+                    posteriors_queue.put('END')
                 break
 
             read_id, raw_data = read
@@ -50,7 +64,10 @@ def main(args):
             gpu_data = torch.tensor(raw_data).to(args.device)
             posteriors = model(gpu_data).exp().cpu().numpy().squeeze()
 
-            writer.queue.put((read_id, posteriors.astype(np.float32)))
+            posteriors_queue.put((read_id, posteriors.astype(np.float32)))
+
+    for p in processes:
+        p.join()
 
     duration = time.perf_counter() - t0
 
@@ -76,4 +93,5 @@ def argparser():
     parser.add_argument("--alpha", type=float)
     parser.add_argument("--beta", type=float)
     parser.add_argument("--fastq", action="store_true", default=False)
+    parser.add_argument("--nprocs", default=4, type=int)
     return parser
