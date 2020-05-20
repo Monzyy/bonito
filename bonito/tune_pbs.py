@@ -22,7 +22,7 @@ def main(args):
 
     sys.stderr.write("> loading model\n")
 
-    best = fmin(lambda x: -1 * objective(x), space, algo=tpe.suggest, max_evals=10)
+    best = fmin(lambda x: -1 * objective(x), space, algo=tpe.suggest, max_evals=25)
     print(best)
 
 
@@ -36,7 +36,7 @@ def objective(args):
     max_read_size = 1e9
     dtype = np.float16 if args.half else np.float32
     reader = HDF5Reader(args.hdf5)
-    n_decoder_processes = 16
+    n_decoder_processes = args.nprocs
     processes = []
     posteriors_queue = Queue()
     output_queue = Queue()
@@ -110,5 +110,6 @@ def argparser():
     parser.add_argument("--beamsize", default=5, type=int)
     parser.add_argument("--half", action="store_true", default=False)
     parser.add_argument("--lm", type=str)
-    parser.add_argument("--decoder", type=str, default='py_pbs')
+    parser.add_argument("--decoder", type=str)
+    parser.add_argument("--nprocs", type=int, default=4)
     return parser
