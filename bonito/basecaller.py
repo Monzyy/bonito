@@ -8,7 +8,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
 from bonito.bonito_io import DecoderWriter, PreprocessReader
-from bonito.decode import LanguageModel
+from bonito.decode import LanguageModel, load_rnn_lm
 
 import torch
 import numpy as np
@@ -25,7 +25,9 @@ def main(args):
     max_read_size = 4e6
     dtype = np.float16 if args.half else np.float32
     reader = PreprocessReader(args.reads_directory)
-    if args.lm and args.decoder in ('r_pbs', 'py_pbs'):
+    if args.lm and args.decoder == 'lm_rnn_pbs':
+        lm = load_rnn_lm(args.lm, args.device)
+    elif args.lm and args.decoder in ('r_pbs', 'py_pbs'):
         lm = LanguageModel(args.lm)
     else:
         lm = None

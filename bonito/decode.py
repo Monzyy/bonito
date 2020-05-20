@@ -12,6 +12,11 @@ from string import ascii_lowercase
 import csv
 import sys
 from joblib import Parallel, delayed
+from bonito.trainlm import one_hot_encode, encode_ref, RNN
+import torch
+import torch.nn.functional as F
+import struct
+import array as arr
 
 OOV_SCORE = float('-inf')  # log(0)
 
@@ -329,3 +334,68 @@ def merge_dict_list(dicts):
     for d in dicts:
         res = {**res, **d}
     return res
+
+
+def rnn_lm_prob(net, char, h=None):
+
+    if isinstance(char, str):
+        char = encode_ref(char)
+    x = np.array([[char]])
+    x = one_hot_encode(x, len(net.chars))
+    inputs = torch.from_numpy(x)
+
+    if(torch.cuda.is_available()):
+        inputs = inputs.cuda()
+
+    if h is None:
+        h = net.init_hidden(1)
+    elif isinstance(h, bytearray):
+        h = np.frombuffer(h, dtype=np.float32)
+        h = h.reshape(1, 1, net.n_hidden)
+        h = torch.from_numpy(h)
+        if(torch.cuda.is_available()):
+            h = h.cuda()
+    elif isinstance(h, list):
+        h = np.asarray(h, dtype=np.float32)
+        h = h.reshape(len(net.chars), 1, net.n_hidden)
+        h = torch.from_numpy(h)
+        if(torch.cuda.is_available()):
+            h = h.cuda()
+   
+
+    out, h = net(inputs, h)
+    p = F.softmax(out, dim=1).data
+    if(torch.cuda.is_available()):
+        p = p.cpu() # move to cpu
+    h = h.flatten().cpu().detach().numpy().tobytes()
+    return p, h
+
+
+def hidden_vec_bytes_from_net(net):
+    return net.init_hidden(1).flatten().cpu().detach().numpy().tobytes()
+
+
+def char_prob_from_probdist(probdist, char):
+    print('hello from char_prob_from_probdist in python')
+    alphabet = 'ACGT'
+    if isinstance(char, str):
+        char = alphabet.index(char)
+    return float(probdist[0][char])
+
+def init_probdist(net):
+    print("inside init_probdist")
+    #print(list(net.parameters()))
+    return torch.tensor([[0.25, 0.25, 0.25, 0.25]]), net.init_hidden(1).flatten().cpu().detach().numpy().tobytes()
+
+
+def load_rnn_lm(path, device='cuda'):
+    with open(path, 'rb') as f:
+        checkpoint = torch.load(f)
+    loaded = RNN(checkpoint['tokens'], n_hidden=checkpoint['n_hidden'], n_layers=checkpoint['n_layers'])
+    loaded.load_state_dict(checkpoint['state_dict'])
+
+    if device == 'cuda':
+        loaded.cuda()
+    else:
+        loaded.cpu()
+    return loaded
