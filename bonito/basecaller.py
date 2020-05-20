@@ -35,7 +35,7 @@ def main(args):
 
     processes = []
     for i in range(args.nprocs):
-        p = DecoderWriter(posteriors_queue, model, beamsize=args.beamsize,
+        p = DecoderWriter(posteriors_queue, model, beamsize=args.beamsize, fastq=args.fastq,
                           decoder=args.decoder, lm=lm, alpha=args.alpha, beta=args.beta)
         processes.append(p)
         p.start()

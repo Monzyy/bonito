@@ -184,9 +184,6 @@ class TunerProcess(Process):
                     predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True,
                     decoder=self.decoder, **self.kwargs
                 )
-                # filter away too long or short
-                if len(sequence) < 4000 or len(sequence) > 5000:
-                    continue
 
                 acc = accuracy(decode_sequence(reference, self.model.alphabet[1:]), sequence)
                 self.output_queue.put(acc)
