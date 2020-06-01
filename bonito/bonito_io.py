@@ -7,8 +7,11 @@ import sys
 from glob import glob
 from textwrap import wrap
 from logging import getLogger
-from multiprocessing import Process, Queue
+from torch.multiprocessing import Process, Queue
 import queue
+from bonito.lm import RNNLanguageModel
+import time
+
 
 from tqdm import tqdm
 
@@ -69,7 +72,8 @@ class DecoderWriter(Process):
     """
     Decoder Process that writes fasta records to stdout
     """
-    def __init__(self, queue, model, fastq=False, beamsize=5, wrap=100, decoder=None, lm=None, alpha=None, beta=None):
+    def __init__(self, queue, model, fastq=False, beamsize=5, wrap=100,
+                 decoder=None, lm=None, alpha=None, beta=None, device='cuda'):
         super().__init__()
         self.queue = queue
         self.model = model
@@ -78,6 +82,8 @@ class DecoderWriter(Process):
         self.beamsize = beamsize
         self.decoder = decoder
         self.kwargs = {}
+        if decoder == 'lm_rnn_pbs':
+            lm = RNNLanguageModel(lm, device)
         for k, v in (('lm', lm), ('alpha', alpha), ('beta', beta)):
             if v is not None:
                 self.kwargs[k] = v
@@ -99,11 +105,14 @@ class DecoderWriter(Process):
             else:
                 if job == 'END':
                     return
+                t0 = time.perf_counter()
                 read_id, predictions = job
                 sequence, path = self.model.decode(
                     predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True,
                     decoder=self.decoder, **self.kwargs
                 )
+                if self.decoder == 'lm_rnn_pbs':
+                    self.kwargs['lm'].clear()
                 if sequence:
                     if self.fastq:
                         write_fastq(read_id, sequence[:len(path)], sequence[len(path):])
@@ -111,6 +120,7 @@ class DecoderWriter(Process):
                         write_fasta(read_id, sequence, maxlen=self.wrap)
                 else:
                     logger.warn("> skipping empty sequence %s", read_id)
+                print(f'read {read_id} took {time.perf_counter() - t0}')
 
     def stop(self):
         self.queue.put(None)
@@ -147,7 +157,7 @@ class TunerProcess(Process):
     Decoder Process that writes fasta records to stdout
     """
     def __init__(self, posterior_queue, output_queue,
-                 model, fastq=False, beamsize=5, wrap=100, decoder=None, lm=None, alpha=None, beta=None):
+                 model, fastq=False, beamsize=5, wrap=100, decoder=None, lm=None, alpha=None, beta=None, device='cuda'):
         super().__init__()
         self.queue = posterior_queue
         self.output_queue = output_queue
@@ -157,6 +167,8 @@ class TunerProcess(Process):
         self.beamsize = beamsize
         self.decoder = decoder
         self.kwargs = {}
+        if decoder == 'lm_rnn_pbs':
+            lm = RNNLanguageModel(lm, device)
         for k, v in (('lm', lm), ('alpha', alpha), ('beta', beta)):
             if v is not None:
                 self.kwargs[k] = v
@@ -184,6 +196,8 @@ class TunerProcess(Process):
                     predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True,
                     decoder=self.decoder, **self.kwargs
                 )
+                if self.decoder == 'lm_rnn_pbs':
+                    self.kwargs['lm'].clear()
 
                 acc = accuracy(decode_sequence(reference, self.model.alphabet[1:]), sequence)
                 self.output_queue.put(acc)

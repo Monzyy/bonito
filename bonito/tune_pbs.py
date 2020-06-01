@@ -5,11 +5,12 @@ Tune Prefix beam-search parameters
 import sys
 import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from multiprocessing import Queue
+from torch.multiprocessing import Queue, set_start_method
 
 from bonito.util import load_model
 from bonito.bonito_io import HDF5Reader, TunerProcess
 from bonito.decode import LanguageModel
+from bonito.lm import load_rnn_lm
 from hyperopt import hp, fmin, tpe
 import queue
 
@@ -18,6 +19,9 @@ import numpy as np
 
 
 def main(args):
+    if args.lmdevice == 'cuda':
+        torch.backends.cudnn.enabled = True
+    set_start_method('spawn')
     space = [hp.uniform('alpha', 0, 2), hp.uniform('beta', 0, 2), args]
 
     sys.stderr.write("> loading model\n")
@@ -30,7 +34,12 @@ def objective(args):
     alpha, beta, args = args
     print(f'basecalling with alpha: {alpha} beta: {beta}')
     model = load_model(args.model_directory, args.device, weights=int(args.weights), half=args.half)
-    lm = LanguageModel(args.lm)
+    if args.lm and args.decoder == 'lm_rnn_pbs':
+        lm = load_rnn_lm(args.lm, args.lmdevice)
+    else:
+        lm = LanguageModel(args.lm)
+    if args.lmdevice == 'cuda':
+        torch.backends.cudnn.enabled = True
     samples = 0
     num_reads = 0
     max_read_size = 1e9
@@ -46,7 +55,7 @@ def objective(args):
 
     for i in range(n_decoder_processes):
         p = TunerProcess(posteriors_queue, output_queue, model, args.beamsize,
-                         decoder=args.decoder, lm=lm, alpha=alpha, beta=beta)
+                         decoder=args.decoder, lm=lm, alpha=alpha, beta=beta, device=args.lmdevice)
         processes.append(p)
         p.start()
     print('Decoder processes started')
@@ -112,4 +121,5 @@ def argparser():
     parser.add_argument("--lm", type=str)
     parser.add_argument("--decoder", type=str)
     parser.add_argument("--nprocs", type=int, default=4)
+    parser.add_argument("--lmdevice", default="cuda")
     return parser

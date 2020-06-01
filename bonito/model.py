@@ -11,6 +11,7 @@ from torch.nn import Module, ModuleList, Sequential, Conv1d, BatchNorm1d, Dropou
 from fast_ctc_decode import beam_search, viterbi_search
 import mod_fast_ctc_decode
 import node_fast_ctc_decode
+import fast_rnn_lm_ctc_decode
 
 
 class Swish(Module):
@@ -55,11 +56,10 @@ class Model(Module):
         return self.decoder(encoded)
 
     def decode(self, x, beamsize=5, threshold=1e-3, qscores=False, return_path=False, decoder=None, **kwargs):
-        print("\n lm: " + str(kwargs['lm']) + "  alpha: " + str(kwargs['alpha']) + "  beta: " + str(kwargs['beta']))
         if decoder == 'lm_rnn_pbs':
-            seq, path = node_fast_ctc_decode.beam_search(x, self.alphabet, beamsize, threshold,
+            seq, path = fast_rnn_lm_ctc_decode.beam_search(x, self.alphabet, beamsize, threshold,
                                            kwargs['lm'], kwargs['alpha'], kwargs['beta'])
-        if decoder == 'py_pbs':
+        elif decoder == 'py_pbs':
             seq, path = prefix_beam_search(x, self.alphabet, beamsize, threshold,
                                            kwargs['lm'], kwargs['alpha'], kwargs['beta'])
         elif decoder == 'r_pbs':

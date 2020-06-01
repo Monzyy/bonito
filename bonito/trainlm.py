@@ -8,10 +8,11 @@ import re
 alphabet = 'ACGT'
 
 train_on_gpu = torch.cuda.is_available()
-if(train_on_gpu):
-    print('Training on GPU!')
-else: 
-    print('No GPU available, training on CPU; consider making n_epochs very small.')
+device = 'cuda' if train_on_gpu else 'cpu'
+#if train_on_gpu:
+#    print('Training on GPU!')
+#else:
+#    print('No GPU available, training on CPU; consider making n_epochs very small.')
 
 
 class RNN(nn.Module):
@@ -26,7 +27,6 @@ class RNN(nn.Module):
         self.gru = nn.GRU(len(self.chars), n_hidden, n_layers)
         self.out = nn.Linear(n_hidden, len(self.chars))
         self.softmax = nn.LogSoftmax(dim=1)
-        
 
     def forward(self, input, hidden):
         output, hidden = self.gru(input, hidden)
@@ -34,16 +34,12 @@ class RNN(nn.Module):
         output = self.out(output)
         return output, hidden
     
-    def init_hidden(self, batch_size):
+    def init_hidden(self, batch_size, device='cpu'):
         ''' Initializes hidden state '''
         # Create two new tensors with sizes n_layers x batch_size x n_hidden,
         # initialized to zero, for hidden state and cell state of LSTM
-        print("inside init_hidden")
-        try:
-            test = next(self.parameters()).data
-        except Exception as e:
-            print(e)
-        weight = next(self.parameters()).data
+        #weight = next(self.parameters()).data
+        return torch.zeros(self.n_layers, batch_size, self.n_hidden, device=device)
         
         #if (train_on_gpu):
         #    hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda(),
@@ -51,16 +47,17 @@ class RNN(nn.Module):
         #else:
         #    hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_(),
         #              weight.new(self.n_layers, batch_size, self.n_hidden).zero_())
-        if (train_on_gpu):
-            hidden = weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda()
-        else:
-            hidden = weight.new(self.n_layers, batch_size, self.n_hidden).zero_()
-        return hidden
+        #if train_on_gpu:
+        #    hidden = weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda()
+        #else:
+        #    hidden = weight.new(self.n_layers, batch_size, self.n_hidden).zero_()
+        #return hidden
 
 
 
 def encode_ref(ref):
     return [alphabet.index(c) for c in ref]
+
 
 
 def ref_to_tensor(ref):
@@ -75,6 +72,7 @@ def ref_to_target_tensor(ref):
     for idx, char in enumerate(ref):
         tensor[idx][alphabet.index(char)] = 1
     return tensor
+
 
 def one_hot_encode(arr, n_labels):
     
@@ -107,6 +105,7 @@ def get_samples(references, batch_size, seq_length):
     for n in range(0, xs.shape[0] - batch_size, batch_size):
         yield xs[n:n + batch_size, :], ys[n:n + batch_size, :]
 
+
 def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5, val_frac=0.1, print_every=10):
     net.train()
 
@@ -116,7 +115,7 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
     val_idx = int(len(data)*(1-val_frac))
     data, val_data = data[:val_idx], data[val_idx:]
 
-    if(train_on_gpu):
+    if train_on_gpu:
         net.cuda()
 
     counter = 0
@@ -132,7 +131,7 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
             inputs, targets = torch.from_numpy(x), torch.from_numpy(y)
             inputs = inputs.transpose(1, 0)
             targets = targets.transpose(1, 0)
-            if(train_on_gpu):
+            if train_on_gpu:
                 inputs, targets = inputs.cuda(), targets.cuda()
 
             #h = tuple([each.data for each in h])
@@ -143,7 +142,7 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
             output, h = net(inputs, h)
             loss = criterion(output, targets.view(batch_size*seq_length))
             loss.backward()
-            nn.utils.clip_grad_norm_(net.parameters(),clip)
+            nn.utils.clip_grad_norm_(net.parameters(), clip)
             opt.step()
 
             if counter % print_every == 0:
@@ -165,7 +164,7 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
                     inputs, targets = x, y
                     inputs = inputs.transpose(1, 0)
                     targets = targets.transpose(1, 0)
-                    if(train_on_gpu):
+                    if train_on_gpu:
                         inputs, targets = inputs.cuda(), targets.cuda()
 
                     output, val_h = net(inputs, val_h)
@@ -179,7 +178,8 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
                       "Step: {}...".format(counter),
                       "Loss: {:.4f}...".format(loss.item()),
                       "Val Loss: {:.4f}".format(np.mean(val_losses)))
-                      
+
+
 def is_actg(ref):
     pattern = r'[^\.ACTG]'
     return not bool(re.search(pattern, ref))
@@ -201,7 +201,6 @@ def main(args):
         references.append(ref)
     source.close()
 
-
     encoded = np.array([encode_ref(ref) for ref in references])
 
     n_letters = len(alphabet)
@@ -210,12 +209,11 @@ def main(args):
     print(net)
     
     batch_size = 2
-    seq_length = 500 #max length verses
-    n_epochs = 100 # start smaller if you are just testing initial behavior
+    seq_length = 500  # max length verses
+    n_epochs = 100  # start smaller if you are just testing initial behavior
 
     # train the model
     train(net, encoded, epochs=n_epochs, batch_size=batch_size, seq_length=seq_length, lr=0.001, print_every=50)
-    
 
     checkpoint = {'n_hidden': net.n_hidden,
                 'n_layers': net.n_layers,
@@ -225,7 +223,6 @@ def main(args):
     with open(args.dest, 'wb') as f:
         torch.save(checkpoint, f)
     
-
 
 def argparser():
     parser = ArgumentParser(

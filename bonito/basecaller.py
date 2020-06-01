@@ -8,15 +8,19 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.util import load_model
 from bonito.bonito_io import DecoderWriter, PreprocessReader
-from bonito.decode import LanguageModel, load_rnn_lm
+from bonito.decode import LanguageModel
 
 import torch
 import numpy as np
-from multiprocessing import Queue
+from torch.multiprocessing import Queue, set_start_method
+from bonito.lm import load_rnn_lm
 
 
 def main(args):
-
+    #if args.lmdevice == 'cuda':
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    set_start_method('spawn')
     sys.stderr.write("> loading model\n")
     model = load_model(args.model_directory, args.device, weights=int(args.weights), half=args.half)
 
@@ -26,7 +30,7 @@ def main(args):
     dtype = np.float16 if args.half else np.float32
     reader = PreprocessReader(args.reads_directory)
     if args.lm and args.decoder == 'lm_rnn_pbs':
-        lm = load_rnn_lm(args.lm, args.device)
+        lm = load_rnn_lm(args.lm, args.lmdevice)
     elif args.lm and args.decoder in ('r_pbs', 'py_pbs'):
         lm = LanguageModel(args.lm)
     else:
@@ -38,7 +42,7 @@ def main(args):
     processes = []
     for i in range(args.nprocs):
         p = DecoderWriter(posteriors_queue, model, beamsize=args.beamsize, fastq=args.fastq,
-                          decoder=args.decoder, lm=lm, alpha=args.alpha, beta=args.beta)
+                          decoder=args.decoder, lm=lm, alpha=args.alpha, beta=args.beta, device=args.lmdevice)
         processes.append(p)
         p.start()
     sys.stderr.write("> calling\n")
@@ -96,4 +100,5 @@ def argparser():
     parser.add_argument("--beta", type=float)
     parser.add_argument("--fastq", action="store_true", default=False)
     parser.add_argument("--nprocs", default=4, type=int)
+    parser.add_argument("--lmdevice", default="cuda")
     return parser
