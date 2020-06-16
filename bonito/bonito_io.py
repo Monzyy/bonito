@@ -120,7 +120,7 @@ class DecoderWriter(Process):
                         write_fasta(read_id, sequence, maxlen=self.wrap)
                 else:
                     logger.warn("> skipping empty sequence %s", read_id)
-                print(f'read {read_id} took {time.perf_counter() - t0}')
+                #sys.stderr.write(f'read {read_id} took {time.perf_counter() - t0}')
 
     def stop(self):
         self.queue.put(None)

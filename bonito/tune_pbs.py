@@ -19,10 +19,10 @@ import numpy as np
 
 
 def main(args):
-    if args.lmdevice == 'cuda':
+    if args.lmdevice == 'cuda' or args.decoder == 'lm_rnn_pbs':
         torch.backends.cudnn.enabled = True
-    set_start_method('spawn')
-    space = [hp.uniform('alpha', 0, 2), hp.uniform('beta', 0, 2), args]
+        set_start_method('spawn')
+    space = [hp.uniform('alpha', 0, 2), hp.uniform('beta', 1, 4), args]
 
     sys.stderr.write("> loading model\n")
 
@@ -34,10 +34,14 @@ def objective(args):
     alpha, beta, args = args
     print(f'basecalling with alpha: {alpha} beta: {beta}')
     model = load_model(args.model_directory, args.device, weights=int(args.weights), half=args.half)
+
     if args.lm and args.decoder == 'lm_rnn_pbs':
         lm = load_rnn_lm(args.lm, args.lmdevice)
-    else:
+    elif args.decoder == 'py_pbs' or args.decoder == 'r_pbs':
         lm = LanguageModel(args.lm)
+    else:
+        lm = None
+
     if args.lmdevice == 'cuda':
         torch.backends.cudnn.enabled = True
     samples = 0

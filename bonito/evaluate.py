@@ -12,6 +12,7 @@ from bonito.training import ChunkDataSet
 from bonito.decode import LanguageModel
 from bonito.util import accuracy, poa, decode_ref
 from bonito.util import init, load_data, load_model
+from bonito.lm import load_rnn_lm, RNNLanguageModel
 
 from torch.utils.data import DataLoader
 
@@ -21,7 +22,10 @@ def main(args):
     poas = []
     init(args.seed, args.device)
 
-    if args.lm:
+    if args.lm and args.decoder == 'lm_rnn_pbs':
+        lm = load_rnn_lm(args.lm, args.lmdevice)
+        lm = RNNLanguageModel(lm, args.lmdevice)
+    elif args.lm and args.decoder in ('r_pbs', 'py_pbs'):
         lm = LanguageModel(args.lm)
     else:
         lm = None
@@ -104,4 +108,5 @@ def argparser():
     parser.add_argument("--lm", type=str)
     parser.add_argument("--alpha", type=float)
     parser.add_argument("--beta", type=float)
+    parser.add_argument("--lmdevice", default="cuda")
     return parser

@@ -135,12 +135,13 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
                 inputs, targets = inputs.cuda(), targets.cuda()
 
             #h = tuple([each.data for each in h])
-            #h = net.init_hidden(batch_size)
-            h = h.detach()
+            h = net.init_hidden(batch_size)
+            # Tror vi skal bruge init hidden i stedet for detach her.
+            #h = h.detach()
 
             net.zero_grad()
             output, h = net(inputs, h)
-            loss = criterion(output, targets.view(batch_size*seq_length))
+            loss = criterion(output, targets.reshape(batch_size*seq_length))
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), clip)
             opt.step()
@@ -168,7 +169,7 @@ def train(net, data, epochs=10, batch_size=10, seq_length=200, lr=0.001, clip=5,
                         inputs, targets = inputs.cuda(), targets.cuda()
 
                     output, val_h = net(inputs, val_h)
-                    val_loss = criterion(output, targets.view(batch_size*seq_length))
+                    val_loss = criterion(output, targets.reshape(batch_size*seq_length))
                 
                     val_losses.append(val_loss.item())
                 
@@ -233,3 +234,9 @@ def argparser():
     parser.add_argument("dest")
 
     return parser
+
+
+if __name__ == '__main__':
+    parser = argparser()
+    args = parser.parse_args()
+    main(args)
