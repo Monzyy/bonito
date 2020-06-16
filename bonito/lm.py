@@ -11,7 +11,7 @@ class RNNLanguageModel:
         self.net = lm_net
         self.clear()
 
-    def init_search_points(self, nodes, parents, tip_labels, prefix_lens):
+    def init_search_points(self, nodes, parents, tip_labels, prefix_lens, purge=True):
         try:
             inputs = []
             hiddens = []
@@ -27,10 +27,11 @@ class RNNLanguageModel:
                     inputs.append(torch.tensor(x, device=self.device))
 
             # Purge nodes that can no longer be reached
-            shortest_prefix = min(prefix_lens)
-            to_remove = [node for node, val in self.suffix_tree.items() if val['prefix_len'] < shortest_prefix and node not in parents]
-            for node in to_remove:
-                self.suffix_tree.pop(node)
+            if purge:
+                shortest_prefix = min(prefix_lens)
+                to_remove = [node for node, val in self.suffix_tree.items() if val['prefix_len'] < shortest_prefix and node not in parents]
+                for node in to_remove:
+                    self.suffix_tree.pop(node)
 
             if inputs:
                 # stack them and compute them
@@ -42,7 +43,9 @@ class RNNLanguageModel:
                     beam_probs[beam_idx] = p[p_idx, :]
                     self.suffix_tree[node] = {'hidden': h[:, p_idx, :],
                                               'rnn_probs': p[p_idx, :],
-                                              'prefix_len': prefix_lens[beam_idx]}
+                                              'prefix_len': prefix_lens[beam_idx],
+                                              'char': p_idx}
+                    p_idx += 1
 
             return beam_probs
         except Exception as e:
@@ -63,13 +66,14 @@ class RNNLanguageModel:
         first_probs, first_hidden = self.forward([input_zero], [hidden_zero])
         self.suffix_tree = {-1: {'hidden': first_hidden[:, 0, :],
                                  'rnn_probs': first_probs[0, :],
-                                 'prefix_len': 0}}
+                                 'prefix_len': 0,
+                                 'char': -1}}
 
 
 
 def load_rnn_lm(path, device):
     with open(path, 'rb') as f:
-        checkpoint = torch.load(f)
+        checkpoint = torch.load(f, map_location=torch.device(device))
     loaded = RNN(checkpoint['tokens'], n_hidden=checkpoint['n_hidden'], n_layers=checkpoint['n_layers'])
     loaded.load_state_dict(checkpoint['state_dict'])
     loaded.to(device)
