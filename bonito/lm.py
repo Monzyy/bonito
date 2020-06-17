@@ -10,8 +10,9 @@ class RNNLanguageModel:
         self.device = device
         self.net = lm_net
         self.clear()
+        self.purge = True
 
-    def init_search_points(self, nodes, parents, tip_labels, prefix_lens, purge=True):
+    def init_search_points(self, nodes, parents, tip_labels, prefix_lens):
         try:
             inputs = []
             hiddens = []
@@ -27,7 +28,7 @@ class RNNLanguageModel:
                     inputs.append(torch.tensor(x, device=self.device))
 
             # Purge nodes that can no longer be reached
-            if purge:
+            if self.purge:
                 shortest_prefix = min(prefix_lens)
                 to_remove = [node for node, val in self.suffix_tree.items() if val['prefix_len'] < shortest_prefix and node not in parents]
                 for node in to_remove:
@@ -44,7 +45,15 @@ class RNNLanguageModel:
                     self.suffix_tree[node] = {'hidden': h[:, p_idx, :],
                                               'rnn_probs': p[p_idx, :],
                                               'prefix_len': prefix_lens[beam_idx],
-                                              'char': p_idx}
+                                              'children': {}}
+                    # Add reference from parent to child with the current character
+                    """
+                    >>> parent = 'AA'
+                    >>> child = 'AAC'
+                    >>> parent['children']['C'] = child
+                    """
+                    self.suffix_tree[parents[beam_idx]]['children'][tip_labels[beam_idx]] = node
+
                     p_idx += 1
 
             return beam_probs
@@ -67,7 +76,9 @@ class RNNLanguageModel:
         self.suffix_tree = {-1: {'hidden': first_hidden[:, 0, :],
                                  'rnn_probs': first_probs[0, :],
                                  'prefix_len': 0,
-                                 'char': -1}}
+                                 'char': -1,
+                                 'parent': -1,
+                                 'children': {}}}
 
 
 

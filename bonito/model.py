@@ -9,8 +9,12 @@ from torch.nn import ReLU, LeakyReLU
 from torch.nn import Module, ModuleList, Sequential, Conv1d, BatchNorm1d, Dropout
 
 from fast_ctc_decode import beam_search, viterbi_search
-import mod_fast_ctc_decode
-import node_fast_ctc_decode
+try:
+    import mod_fast_ctc_decode
+    import node_fast_ctc_decode
+except ImportError:
+    pass
+
 import fast_rnn_lm_ctc_decode
 
 

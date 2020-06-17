@@ -42,7 +42,8 @@ def main(args):
     processes = []
     for i in range(args.nprocs):
         p = DecoderWriter(posteriors_queue, model, beamsize=args.beamsize, fastq=args.fastq,
-                          decoder=args.decoder, lm=lm, alpha=args.alpha, beta=args.beta, device=args.lmdevice)
+                          decoder=args.decoder, lm=lm, alpha=args.alpha, beta=args.beta, device=args.lmdevice,
+                          analysis=args.analysis)
         processes.append(p)
         p.start()
     sys.stderr.write("> calling\n")
@@ -101,4 +102,5 @@ def argparser():
     parser.add_argument("--fastq", action="store_true", default=False)
     parser.add_argument("--nprocs", default=4, type=int)
     parser.add_argument("--lmdevice", default="cuda")
+    parser.add_argument("--analysis", action="store_true", help="output analysis csv")
     return parser

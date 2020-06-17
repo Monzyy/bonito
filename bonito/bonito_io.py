@@ -4,6 +4,7 @@ Bonito Input/Output
 
 import os
 import sys
+import csv
 from glob import glob
 from textwrap import wrap
 from logging import getLogger
@@ -73,7 +74,7 @@ class DecoderWriter(Process):
     Decoder Process that writes fasta records to stdout
     """
     def __init__(self, queue, model, fastq=False, beamsize=5, wrap=100,
-                 decoder=None, lm=None, alpha=None, beta=None, device='cuda'):
+                 decoder=None, lm=None, alpha=None, beta=None, device='cuda', analysis=False):
         super().__init__()
         self.queue = queue
         self.model = model
@@ -81,9 +82,12 @@ class DecoderWriter(Process):
         self.fastq = fastq
         self.beamsize = beamsize
         self.decoder = decoder
+        self.analysis = analysis
         self.kwargs = {}
         if decoder == 'lm_rnn_pbs':
             lm = RNNLanguageModel(lm, device)
+            if analysis:
+                lm.purge = False
         for k, v in (('lm', lm), ('alpha', alpha), ('beta', beta)):
             if v is not None:
                 self.kwargs[k] = v
@@ -111,8 +115,6 @@ class DecoderWriter(Process):
                     predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True,
                     decoder=self.decoder, **self.kwargs
                 )
-                if self.decoder == 'lm_rnn_pbs':
-                    self.kwargs['lm'].clear()
                 if sequence:
                     if self.fastq:
                         write_fastq(read_id, sequence[:len(path)], sequence[len(path):])
@@ -121,6 +123,29 @@ class DecoderWriter(Process):
                 else:
                     logger.warn("> skipping empty sequence %s", read_id)
                 #sys.stderr.write(f'read {read_id} took {time.perf_counter() - t0}')
+
+                if self.analysis:
+
+                    suffix_tree = self.kwargs['lm'].suffix_tree
+                    node = -1
+
+                    bs_seq, bs_path = self.model.decode(
+                        predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True)
+
+                    with open(f'{read_id}_outputs.csv', 'w', newline='') as csvfile:
+                        writer = csv.writer(csvfile, dialect='excel')
+                        writer.writerow(['t', 'bs', 'pbs', 'ctc-', 'ctcA', 'ctcC', 'ctcG', 'ctcT', 'lmA', 'lmC', 'lmG', 'lmT'])
+                        for idx, probs in enumerate(predictions):
+                            bs_char = bs_seq[bs_path.index(idx)] if idx in bs_path else ''
+                            pbs_char = sequence[path.index(idx)] if idx in path else ''
+                            p_formatted = [f'{p:.5f}' for p in probs]
+                            row = [idx, bs_char, pbs_char, *p_formatted]
+                            if pbs_char:
+                                row.extend([f'{p:.5f}' for p in suffix_tree[node]['rnn_probs']])
+                                node = suffix_tree[node]['children']['ACGT'.index(pbs_char)]
+                            writer.writerow(row)
+                if self.decoder == 'lm_rnn_pbs':
+                    self.kwargs['lm'].clear()
 
     def stop(self):
         self.queue.put(None)

@@ -7,3 +7,5 @@ requests==2.22.0
 ont-fast5-api==3.0.1
 fast-ctc-decode==0.2.5
 #pyclaragenomics-cuda-10-0==0.4.2
+mappy==2.17
+hyperopt==0.2.4
