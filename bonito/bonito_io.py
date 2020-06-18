@@ -131,18 +131,25 @@ class DecoderWriter(Process):
 
                     bs_seq, bs_path = self.model.decode(
                         predictions, beamsize=self.beamsize, qscores=self.fastq, return_path=True)
+                    alpha = self.kwargs['alpha']
+                    beta = self.kwargs['beta']
+                    beam_len = 1
 
                     with open(f'{read_id}_outputs.csv', 'w', newline='') as csvfile:
                         writer = csv.writer(csvfile, dialect='excel')
-                        writer.writerow(['t', 'bs', 'pbs', 'ctc-', 'ctcA', 'ctcC', 'ctcG', 'ctcT', 'lmA', 'lmC', 'lmG', 'lmT'])
+                        writer.writerow(['t', 'bs', 'pbs', 'ctc-', 'ctcA', 'ctcC', 'ctcG', 'ctcT', 'SlmA', 'SlmC', 'SlmG', 'SlmT', 'beam_len', 'beta_comp', 'lmA', 'lmC', 'lmG', 'lmT'])
                         for idx, probs in enumerate(predictions):
                             bs_char = bs_seq[bs_path.index(idx)] if idx in bs_path else ''
                             pbs_char = sequence[path.index(idx)] if idx in path else ''
                             p_formatted = [f'{p:.5f}' for p in probs]
                             row = [idx, bs_char, pbs_char, *p_formatted]
                             if pbs_char:
-                                row.extend([f'{p:.5f}' for p in suffix_tree[node]['rnn_probs']])
+                                rnn_probs = suffix_tree[node]['rnn_probs']
+                                row.extend([f'{p**alpha:.5f}' for p in rnn_probs])
+                                row.extend([beam_len, (beam_len + 1)**beta])
+                                row.extend([f'{p:.5f}' for p in rnn_probs])
                                 node = suffix_tree[node]['children']['ACGT'.index(pbs_char)]
+                                beam_len += 1
                             writer.writerow(row)
                 if self.decoder == 'lm_rnn_pbs':
                     self.kwargs['lm'].clear()
